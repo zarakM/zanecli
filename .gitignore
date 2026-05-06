@@ -10,6 +10,11 @@ kubectl-ai-darwin
 kubectl-ai-windows
 kubectl-ai.exe
 aik8scopilot
+zanecli
+zanecli-linux
+zanecli-darwin
+zanecli-windows
+zanecli.exe
 
 # Go test cache and build artifacts
 *.test

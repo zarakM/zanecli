@@ -34,6 +34,13 @@ func (c *Client) ServerURL() string {
 	return c.serverURL
 }
 
+// Clientset returns the underlying client-go clientset. Exposed so tool
+// implementations in pkg/tools can issue arbitrary API calls without
+// requiring a wrapper method per tool.
+func (c *Client) Clientset() *kubernetes.Clientset {
+	return c.clientset
+}
+
 // DiagnosticData is everything we feed to the AI.
 // Struct tags (json:"...") control how fields serialize to JSON — not needed
 // here but good habit for types that might be logged or serialized later.
