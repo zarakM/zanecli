@@ -45,6 +45,8 @@ func NewRegistry(client *k8s.Client) *Registry {
 	r.Add(&GetEventsTool{Client: client})
 	r.Add(&DiagnosePodTool{Client: client})
 	r.Add(&DiagnoseRolloutTool{Client: client})
+	r.Add(&ListPVCsTool{Client: client})
+	r.Add(&ListStorageClassesTool{Client: client})
 
 	// Writes
 	r.Add(&RestartDeploymentTool{Client: client})
