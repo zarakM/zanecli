@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -100,8 +101,9 @@ func (t *ListPodsTool) Run(ctx context.Context, raw json.RawMessage) (string, er
 			}
 			restarts += cs.RestartCount
 		}
-		fmt.Fprintf(&sb, "  %-50s phase=%s ready=%d/%d restarts=%d\n",
-			p.Name, p.Status.Phase, ready, total, restarts)
+		age := shortDuration(time.Since(p.CreationTimestamp.Time))
+		fmt.Fprintf(&sb, "  %-50s phase=%s ready=%d/%d restarts=%d age=%s\n",
+			p.Name, p.Status.Phase, ready, total, restarts, age)
 	}
 	return sb.String(), nil
 }
@@ -156,4 +158,20 @@ func (t *ListDeploymentsTool) Run(ctx context.Context, raw json.RawMessage) (str
 			d.Name, desired, d.Status.ReadyReplicas, d.Status.AvailableReplicas, d.Status.UnavailableReplicas)
 	}
 	return sb.String(), nil
+}
+
+// shortDuration renders a duration in the same compact style as `kubectl get`
+// (e.g. "45s", "12m", "3h", "5d"). Used so the agent can apply age-based
+// health heuristics from list_pods output without parsing RFC3339 timestamps.
+func shortDuration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours())/24)
+	}
 }
