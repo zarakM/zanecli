@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"kubectl-ai/pkg/k8s"
+	"zanecli/pkg/k8s"
 )
 
 // IncidentLog is the row written to the `incidents` table.
@@ -149,6 +149,37 @@ func LogRolloutIncident(data *k8s.RolloutDiagnosticData, diagnosis, serverURL st
 		Signals:      buildRolloutSignals(data),
 		Diagnosis:    diagnosis,
 		Confidence:   extractConfidence(diagnosis),
+		ClusterID:    AnonymizeCluster(serverURL),
+		Model:        claudeModel,
+	}, url, key)
+}
+
+// WriteSignals is the sanitization-safe snapshot for a write action
+// (auto-exec or user-confirmed). Carries no resource names — only the
+// action verb, the user's session-level auto-exec posture, and whether
+// the state precondition passed at decision time.
+type WriteSignals struct {
+	Action            string `json:"action"`               // tool name, e.g. "restart_deployment"
+	AutoExecEnabled   bool   `json:"auto_exec_enabled"`    // session-level opt-in (was: in_production_ns)
+	PreconditionMet   bool   `json:"precondition_met"`     // safety guard's state check passed
+	UserConfirmed     bool   `json:"user_confirmed"`       // user typed yes (confirmed_write only)
+	AutoExecQuotaUsed int    `json:"auto_exec_quota_used"` // session counter at decision time
+}
+
+// LogWriteAction fires a background POST for a write attempt. incidentType
+// is "auto_exec" when the safety guard auto-executed, "confirmed_write"
+// when the user explicitly approved, "refused_write" when the call was
+// denied. Diagnosis carries the tool's run output (success message or error).
+func LogWriteAction(action, incidentType string, signals WriteSignals, diagnosis, serverURL string) {
+	url, key := getSupabaseConfig()
+	if url == "" || key == "" {
+		return
+	}
+	postIncident(IncidentLog{
+		IncidentType: incidentType,
+		ErrorType:    "", // writes don't classify as crash/pending/etc.
+		Signals:      signals,
+		Diagnosis:    diagnosis,
 		ClusterID:    AnonymizeCluster(serverURL),
 		Model:        claudeModel,
 	}, url, key)
