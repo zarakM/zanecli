@@ -9,7 +9,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -25,15 +24,6 @@ import (
 )
 
 func main() {
-	// Per-invocation auto-exec override. --auto and --no-auto are mutually
-	// exclusive; if neither is set, the saved config value is used.
-	autoFlag := flag.Bool("auto", false, "enable auto-exec for this session (overrides config)")
-	noAutoFlag := flag.Bool("no-auto", false, "force confirm-everything for this session (overrides config)")
-	flag.Parse()
-	if *autoFlag && *noAutoFlag {
-		fatalf("--auto and --no-auto are mutually exclusive")
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -54,14 +44,10 @@ func main() {
 		fatalf("config error: %v\n\nIf the file at ~/.zanecli/config.json is corrupt, delete it and re-run.", err)
 	}
 
-	// CLI flags override the saved config value for this invocation only —
-	// they do not persist back to ~/.zanecli/config.json.
-	if *autoFlag {
-		cfg.AutoExec = true
-	}
-	if *noAutoFlag {
-		cfg.AutoExec = false
-	}
+	// MVP: auto-exec is disabled. Every write falls through to a y/N prompt.
+	// We still honor any value loaded from older config files by forcing it
+	// off here so a saved `auto_exec: true` cannot bypass confirmation.
+	cfg.AutoExec = false
 
 	client, err := k8s.NewClient(cfg.KubeconfigPath)
 	if err != nil {
@@ -91,14 +77,14 @@ func main() {
 
 	fmt.Printf("%szanecli%s — your Kubernetes co-pilot\n", ui.Bold+ui.Cyan, ui.Reset)
 	fmt.Printf("Cluster: %s%s%s\n", ui.Dim, abbreviateServerURL(client.ServerURL()), ui.Reset)
-	printAutoExecStatus(cfg.AutoExec)
+	fmt.Printf("%s[every cluster change asks first — confirm with y/N]%s\n", ui.Dim, ui.Reset)
 
 	// Offer to resume a prior session if history is on and a previous file exists.
 	if cfg.HistoryEnabled {
 		offerResume(sess, scanner)
 	}
 
-	fmt.Println("Type your question, or 'exit' to quit. Use /clear to reset the conversation; /auto and /no-auto toggle auto-fix.")
+	fmt.Println("Type your question, or 'exit' to quit. Use /clear to reset the conversation.")
 	fmt.Println()
 
 	// Track the persisted prefix so we only append new messages after each Step.
@@ -119,14 +105,6 @@ func main() {
 			sess.Clear()
 			persistedPrefix = 0
 			fmt.Println("(conversation cleared)")
-			continue
-		case "/auto":
-			cfg.AutoExec = true
-			printAutoExecStatus(cfg.AutoExec)
-			continue
-		case "/no-auto":
-			cfg.AutoExec = false
-			printAutoExecStatus(cfg.AutoExec)
 			continue
 		}
 
@@ -189,18 +167,6 @@ func (c *stdinConfirmer) AskYesNo(prompt string) bool {
 func fatalf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "%s✗%s "+format+"\n", append([]any{ui.Red, ui.Reset}, args...)...)
 	os.Exit(1)
-}
-
-// printAutoExecStatus shows the session's current auto-exec posture so it
-// stays visible across context switches. Loud (yellow) when ON, quiet (dim)
-// when off — auto-exec is the high-stakes setting and should not fade into
-// the background after the user enabled it.
-func printAutoExecStatus(on bool) {
-	if on {
-		fmt.Printf("%s[auto-exec: ON — whitelisted writes may run without prompting]%s\n", ui.Yellow, ui.Reset)
-	} else {
-		fmt.Printf("%s[auto-exec: off — every write asks first]%s\n", ui.Dim, ui.Reset)
-	}
 }
 
 // abbreviateServerURL turns "https://prod-east.cluster.local:6443" into

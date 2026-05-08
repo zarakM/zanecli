@@ -159,11 +159,9 @@ func RunWizard(in io.Reader, out io.Writer) (*Config, error) {
 	fmt.Fprint(out, "Persist conversation history locally? It includes resource names from your cluster, never uploaded. [y/N]: ")
 	cfg.HistoryEnabled = asksYes(read())
 
-	// Auto-exec opt-in — default OFF. The user explicitly declares trust
-	// for whitelisted writes (delete_pod, restart_deployment); per-session
-	// overrides come from --auto / --no-auto flags or /auto / /no-auto.
-	fmt.Fprint(out, "Auto-fix crashlooping pods and stuck rollouts without prompting? You can override per-session with --auto / --no-auto. [y/N]: ")
-	cfg.AutoExec = asksYes(read())
+	// MVP: auto-exec is forced off in main.go. Skip the wizard prompt so
+	// new users don't see a control that has no effect.
+	cfg.AutoExec = false
 
 	if err := cfg.Save(); err != nil {
 		return nil, err
