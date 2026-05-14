@@ -17,6 +17,10 @@ import (
 
 type DiagnosePodTool struct {
 	Client *k8s.Client
+	// Registry is a back-pointer used at Run time to find the current
+	// DiagnosticSink. The sink is set after registry construction, so a
+	// pointer-back lets us see the latest value without re-wiring tools.
+	Registry *Registry
 }
 
 func (t *DiagnosePodTool) Name() string { return "diagnose_pod" }
@@ -63,6 +67,11 @@ func (t *DiagnosePodTool) Run(ctx context.Context, raw json.RawMessage) (string,
 		if err != nil {
 			return fmt.Sprintf("error: %v", err), nil
 		}
+		if t.Registry != nil {
+			if sink := t.Registry.Sink(); sink != nil {
+				sink.RecordPending(data)
+			}
+		}
 		return renderPendingData(data), nil
 	}
 
@@ -70,13 +79,19 @@ func (t *DiagnosePodTool) Run(ctx context.Context, raw json.RawMessage) (string,
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
 	}
+	if t.Registry != nil {
+		if sink := t.Registry.Sink(); sink != nil {
+			sink.RecordCrash(data)
+		}
+	}
 	return renderCrashData(data), nil
 }
 
 // --- diagnose_rollout ---
 
 type DiagnoseRolloutTool struct {
-	Client *k8s.Client
+	Client   *k8s.Client
+	Registry *Registry
 }
 
 func (t *DiagnoseRolloutTool) Name() string { return "diagnose_rollout" }
@@ -115,6 +130,11 @@ func (t *DiagnoseRolloutTool) Run(ctx context.Context, raw json.RawMessage) (str
 	data, err := t.Client.GatherRolloutDiagnostics(ctx, ns, dep, lines)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err), nil
+	}
+	if t.Registry != nil {
+		if sink := t.Registry.Sink(); sink != nil {
+			sink.RecordRollout(data)
+		}
 	}
 	return renderRolloutData(data), nil
 }

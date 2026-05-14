@@ -56,6 +56,36 @@ type Session struct {
 	// Counters used for safety + cost caps.
 	turnCount     int
 	autoExecCount int
+
+	// pendingDiagnostics is the per-Step buffer of structured diagnostic
+	// payloads captured by diagnose_pod / diagnose_rollout. Drained at the
+	// end_turn exit of Step (one telemetry row per entry, with the agent's
+	// final text as `diagnosis`), discarded at the round-trip-cap exit.
+	pendingDiagnostics []capturedDiagnostic
+}
+
+// capturedDiagnostic is one structured diagnostic gathered during a Step.
+// Exactly one of the three pointers is non-nil; kind names which.
+type capturedDiagnostic struct {
+	kind    string // "crash" | "pending" | "rollout"
+	crash   *k8s.DiagnosticData
+	pending *k8s.PendingDiagnosticData
+	rollout *k8s.RolloutDiagnosticData
+}
+
+// RecordCrash / RecordPending / RecordRollout make Session satisfy
+// tools.DiagnosticSink. The diagnose tools call these inside their Run;
+// telemetry actually fires when Step drains the buffer at end_turn.
+func (s *Session) RecordCrash(d *k8s.DiagnosticData) {
+	s.pendingDiagnostics = append(s.pendingDiagnostics, capturedDiagnostic{kind: "crash", crash: d})
+}
+
+func (s *Session) RecordPending(d *k8s.PendingDiagnosticData) {
+	s.pendingDiagnostics = append(s.pendingDiagnostics, capturedDiagnostic{kind: "pending", pending: d})
+}
+
+func (s *Session) RecordRollout(d *k8s.RolloutDiagnosticData) {
+	s.pendingDiagnostics = append(s.pendingDiagnostics, capturedDiagnostic{kind: "rollout", rollout: d})
 }
 
 // NewSession wires the dependencies and produces a session ready to Step.
@@ -77,6 +107,7 @@ func (s *Session) Clear() {
 	s.messages = nil
 	s.turnCount = 0
 	s.autoExecCount = 0
+	s.pendingDiagnostics = nil
 }
 
 // Messages returns the current conversation history. Used by pkg/history
@@ -145,6 +176,7 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		}
 
 		if len(toolUses) == 0 || resp.StopReason == "end_turn" {
+			s.drainDiagnostics(resp.Content)
 			return nil
 		}
 
@@ -162,8 +194,52 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		// Loop continues — Claude reacts to the tool results.
 	}
 
+	// Cap-hit exit: the final text is the limiter message, not a real
+	// diagnosis. Discard the buffer rather than log misleading rows.
+	s.pendingDiagnostics = nil
 	fmt.Fprintln(out, "(reached the per-turn tool-use limit; reply or /clear to continue)")
 	return nil
+}
+
+// drainDiagnostics fires one telemetry row per captured diagnostic and
+// clears the buffer. The agent's final text from the closing assistant
+// message is shared across rows as the `diagnosis` field. Gated on the
+// session's telemetry-enabled flag; the buffer is always cleared so a
+// disabled-telemetry session doesn't accumulate.
+func (s *Session) drainDiagnostics(finalContent []ai.ContentBlock) {
+	if len(s.pendingDiagnostics) == 0 {
+		return
+	}
+	defer func() { s.pendingDiagnostics = nil }()
+
+	if !s.cfg.TelemetryEnabled {
+		return
+	}
+
+	finalText := concatText(finalContent)
+	serverURL := s.client.ServerURL()
+	for _, d := range s.pendingDiagnostics {
+		switch d.kind {
+		case "crash":
+			telemetry.LogCrashIncident(d.crash, finalText, serverURL)
+		case "pending":
+			telemetry.LogPendingIncident(d.pending, finalText, serverURL)
+		case "rollout":
+			telemetry.LogRolloutIncident(d.rollout, finalText, serverURL)
+		}
+	}
+}
+
+// concatText joins the text blocks from an assistant response. Tool_use
+// blocks and other non-text content are ignored.
+func concatText(blocks []ai.ContentBlock) string {
+	var out string
+	for _, b := range blocks {
+		if b.Type == "text" {
+			out += b.Text
+		}
+	}
+	return out
 }
 
 // dispatchTool executes a single tool_use block, applying safety checks

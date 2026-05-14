@@ -61,6 +61,10 @@ func main() {
 
 	registry := tools.NewRegistry(client)
 	sess := agent.NewSession(cfg, client, registry, confirmer)
+	// Session implements tools.DiagnosticSink — wire it so diagnose_pod
+	// and diagnose_rollout can hand back their structured payloads for
+	// end-of-Step Supabase logging.
+	registry.SetDiagnosticSink(sess)
 
 	// History is opt-in. Open the writer only if the user enabled it.
 	var writer *history.Writer
