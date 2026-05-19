@@ -63,6 +63,7 @@ func NewRegistry(client *k8s.Client) *Registry {
 	r.Add(&DiagnoseRolloutTool{Client: client, Registry: r})
 	r.Add(&ListPVCsTool{Client: client})
 	r.Add(&ListStorageClassesTool{Client: client})
+	r.Add(&GetResourceTool{Client: client})
 
 	// Writes
 	r.Add(&RestartDeploymentTool{Client: client})

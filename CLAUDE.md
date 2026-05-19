@@ -4,102 +4,90 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`zanecli` — a conversational Kubernetes co-pilot. The user runs `zanecli` and gets a chat session: ask questions, the agent investigates via Anthropic tool use, proposes fixes, and (for a tightly-scoped whitelist) auto-executes safe writes.
+`zanecli` — a conversational Kubernetes co-pilot. The user runs `zanecli` and gets a chat REPL: ask a question in plain English, the agent investigates the cluster via Anthropic tool use, cites evidence, and proposes fixes. A tightly-scoped set of writes (`restart_deployment`, `delete_pod`) can be executed, but every write is confirmation-gated in the current build (see "Auto-exec reality" below).
 
-This is a heavy redesign of the previous `kubectl-ai` one-shot CLI. The plan lives at `~/.claude/plans/image-1-image-2-sequential-rain.md`. Phase 1 (repo restructure — current state) is shipped; Phase 2 onwards (wizard, agent loop, tools, auto-exec, history, launch) is still ahead.
+All six original implementation phases (rename, wizard, agent loop, write actions, history, polish) are shipped and in `pkg/`. This is no longer a one-shot CLI — the old `kubectl-ai` `cmd/` + Cobra layer is gone; there are no subcommands.
 
-## Phase 1 state (what's currently in code)
+## Build, run, check
 
-- Single binary `zanecli`, built from root `main.go`.
-- REPL skeleton: reads stdin, echoes input. No LLM yet.
-- ⌃C handler in place (currently just prints a hint; Phase 3 will use it to abort in-flight agent steps).
-- `pkg/ai/claude.go` trimmed to durable transport: `ClaudeClient`, `streamTo`, `complete`, request/response types. All `Diagnose*`/`Answer*`/`Route` methods and their system prompts are deleted.
-- `pkg/k8s/client.go` unchanged — every gather strategy (`GatherDiagnostics`, `GatherPendingDiagnostics`, `GatherRolloutDiagnostics`, `GatherNamespaceInventory`) and formatter (`formatPodSpec`, `formatEvents`, `formatNodes`, etc.) is preserved. Phase 3 wraps these as Anthropic tool implementations.
-- `pkg/telemetry/logger.go` unchanged — sanitization invariant still holds. Phase 4 adds `tool_call` / `auto_exec` / `confirmed_write` incident types.
-- The old `cmd/` directory is deleted along with `diagnose.go`, `rollout.go`, `ask.go`, `root.go`. Cobra dependency dropped (no subcommands).
-
-## Build and run
 ```bash
-go build -o zanecli .
-./zanecli
+go build -o zanecli .        # build
+./zanecli                    # run (first launch triggers the config wizard)
+go vet ./...                 # vet (no Makefile, no golangci config, no test suite exist)
+go mod tidy                  # after touching imports
 ```
 
-Production build with telemetry baked in (still works the same way; module-path prefix updated):
+There are **no `*_test.go` files** and no lint/CI config in the repo — `go build` + `go vet` is the full local check. `testdata/` holds manual smoke targets (`crashloop-pod.yaml`, `stuck-rollout.yaml`) you apply to a real cluster and then drive the agent against; they are not automated tests.
+
+Production build with telemetry baked in:
 ```bash
 GOOS=linux GOARCH=amd64 go build -ldflags "\
   -X zanecli/pkg/telemetry.supabaseURL=https://yourproject.supabase.co \
   -X zanecli/pkg/telemetry.supabaseKey=your-anon-key" \
   -o zanecli-linux .
 ```
+Credential precedence (highest → lowest): `SUPABASE_URL`/`SUPABASE_KEY` env vars > `~/.zanecli/config.json` (passed in via `telemetry.SetSupabaseConfig`) > ldflags-baked defaults. Same env-wins precedence for `ANTHROPIC_API_KEY` / `KUBECONFIG` over the config file.
 
-Dev override (skip recompile): set `SUPABASE_URL` + `SUPABASE_KEY` env vars — they take precedence over ldflags values.
+## Architecture
 
-Test fixtures in `testdata/` — used in Phase 3 onwards as the agent's smoke targets:
-- `crashloop-pod.yaml` — pod that crashes immediately. Agent should call `list_pods` → `diagnose_pod` → propose `delete_pod` (auto-exec eligible).
-- `stuck-rollout.yaml` — Deployment with permanently failing readiness probe. Agent should call `list_deployments` → `diagnose_rollout` → propose `restart_deployment` (auto-exec eligible).
-
-## Architecture (planned end-state, Phase 6)
+Request flow: `main.go` REPL loop → `agent.Session.Step` (multi-turn Anthropic tool-use loop) → `tools.Registry` dispatch → `pkg/k8s` → results fed back to the model until it stops calling tools and emits final text.
 
 ```
-zanecli (single binary, no subcommands)
-  ├── First-launch wizard (if no ~/.zanecli/config.json)
-  │     • prompts for ANTHROPIC_API_KEY, kubeconfig path, telemetry y/n, history y/n,
-  │       prod-namespace regex; writes ~/.zanecli/config.json
-  │
-  ├── REPL loop (main.go)
-  │     • reads stdin, calls agent.Step(messages, tools), displays response
-  │
-  ├── pkg/agent — multi-turn tool-use loop
-  │     • Anthropic API call with system prompt + tools[] + messages[]
-  │     • on tool_use blocks → execute tool → append tool_result → recurse
-  │     • streams visible text to stdout; renders tool calls as [bracketed status lines]
-  │     • per-session caps: max N turns, max M auto-execs
-  │
-  ├── pkg/tools — one Go file per tool; read tools always allowed,
-  │   write tools gated by pkg/safety/guards.go
-  │     READ:    list_pods, list_deployments, list_namespaces,
-  │              diagnose_pod, diagnose_rollout, get_pod_logs, get_events,
-  │              describe_pod, describe_deployment
-  │     AUTO-EXEC WRITES (whitelist):  restart_deployment, delete_pod
-  │     CONFIRMABLE WRITES:            scale_deployment, apply_yaml, patch_resource
-  │
-  ├── pkg/k8s     — REUSED unchanged from kubectl-ai era
-  ├── pkg/ai      — REUSED in part: streamTo, complete, ClaudeClient
-  ├── pkg/telemetry — REUSED; new incident_types added in Phase 4
-  ├── pkg/config  — NEW (Phase 2): wizard + persisted config
-  ├── pkg/safety  — NEW (Phase 4): three-guard auto-exec check + session opt-in
-  └── pkg/history — NEW (Phase 5): JSONL session log + resume
+main.go              REPL: config wizard, ⌃C handling, history persistence,
+                     stdin-backed write confirmer. Builtins: exit/quit, /clear.
+pkg/config           First-run wizard + ~/.zanecli/config.json (mode 0600).
+pkg/agent            Session: owns message history, runs the tool-use loop,
+                     streams text + [bracketed tool-status] lines, drains the
+                     telemetry buffer at end_turn.
+pkg/tools            One Tool per file; Registry.NewRegistry wires them all.
+                     Reads always run; writes are routed through pkg/safety.
+pkg/safety           Guard.Evaluate → AutoExec / Confirm / Refuse. Fail-closed.
+pkg/k8s              Cluster access. Typed gather/format helpers (REUSED from
+                     the kubectl-ai era, unchanged) + generic.go (dynamic
+                     client + discovery RESTMapper, backs get_resource).
+pkg/ai               Direct HTTP to Anthropic /v1/messages. No SDK, no LLM
+                     framework. streamTo (SSE), complete (one-shot), and the
+                     AgentRequest tool-use content-block types.
+pkg/telemetry        Silent background Supabase logging. Sanitization invariant.
+pkg/history          Opt-in JSONL session log + resume-at-launch.
+pkg/ui               ANSI color constants.
 ```
 
-### Auto-exec safety (three guards + session opt-in — Phase 4)
+### The agent loop (pkg/agent)
 
-Auto-exec is **off by default**. The user explicitly opts in via the wizard, the `--auto` / `--no-auto` CLI flags, or the `/auto` `/no-auto` REPL slash commands. Once opted in, a whitelisted write reaches auto-exec only if all three guards pass:
-1. **Whitelist match** — tool is `restart_deployment` or `delete_pod`.
-2. **State precondition** — target is already in failing state (verified via `pkg/k8s` re-fetch immediately before execution).
-3. **Per-session quota** — max 3 auto-execs per chat session.
+`Session.Step` is the unit of work: one user input → final answer, internally taking as many Anthropic round-trips as the model needs. `Session` holds `[]ai.AgentMessage`; `Clear`/`LoadMessages`/`Messages` exist for `/clear` and `pkg/history` resume. `Session` implements `tools.DiagnosticSink` — `diagnose_pod`/`diagnose_rollout` push structured payloads into a per-Step buffer via `RecordCrash/Pending/Rollout`; telemetry fires once at `end_turn`, using the agent's final text as the `diagnosis` field (not per tool call). Preserve this end-of-Step attribution if you touch telemetry wiring.
 
-The earlier production-namespace regex was dropped: namespace-name heuristics are leaky in both directions (`prod-shadow` false-positives, `live-eu-1` false-negatives), and putting the trust decision in the user's hands via the explicit opt-in is clearer than asking the agent to guess from names.
+### Tools (pkg/tools)
 
-Failure of the opt-in or any guard falls back to confirmation prompt.
+Every tool implements `Tool` (`Name/Description/InputSchema/Run`) and is registered in `NewRegistry`. Tool errors are returned as the *string result* (so the model can adjust and retry), not as Go errors — Go errors are reserved for protocol problems like an unknown tool name. Read tools: `list_namespaces/pods/deployments`, `describe_pod/deployment`, `get_pod_logs`, `get_events`, `diagnose_pod`, `diagnose_rollout`, `list_pvcs`, `list_storageclasses`, and `get_resource` (the catch-all dynamic reader for any kind without a dedicated tool — StatefulSet, DaemonSet, Job, PV, Service, HPA, Node, CRDs; returns sanitized YAML, Secret values redacted in `pkg/k8s/generic.go`). Write tools: `restart_deployment`, `delete_pod`.
 
-## Telemetry data model (Supabase `incidents` table)
+The agent's persona and operating rules live in `systemPrompt()` at the bottom of `pkg/agent/agent.go`. It must only reference tools actually registered in `NewRegistry`. When adding/removing a tool, update both the registry and the prompt's tool inventory and per-kind playbooks.
 
-Eight fields (Phase 1 — unchanged from kubectl-ai era): `incident_type` (`crash` | `pending` | `rollout`), `error_type`, `signals` (jsonb — schema-flexible per `incident_type`), `diagnosis`, `confidence`, `cluster_id` (SHA256 of server URL, first 8 bytes), `model`, `created_at`. No pod names, namespace names, deployment names, env var values, image strings, or secret names are stored.
+### Auto-exec reality (read before touching writes)
 
-Sanitization invariant: `pkg/telemetry/logger.go` reads only from the structured side-fields on the diagnostic structs (e.g. `EventReasons`, `SchedulerReason`, `ReplicaCounts`, `WorstPodContainers`), never from the formatted-string fields. The single allowed exception is `WorstPodLogs`, used as `log_tail` for crash and rollout paths.
+The codebase contains a full three-guard auto-exec design in `pkg/safety` (opt-in `cfg.AutoExec` → whitelist → live state precondition → per-session quota of `MaxAutoExecsPerSession`). **But `main.go` hard-sets `cfg.AutoExec = false` on every launch**, so `Guard.Evaluate` always returns `Confirm` for writes — every cluster mutation prompts `y/N` via the stdin `Confirmer`. The README and several code comments describe `--auto`/`--no-auto` CLI flags, `/auto`/`/no-auto` slash commands, and a production-namespace regex guard: **none of these are wired** (no flag parsing in `main.go`, only `exit`/`quit`/`/clear` builtins, the namespace-regex guard was dropped). Treat the safety machinery as present-but-dormant; do not "fix" the forced-off line into an enablement path without an explicit request, and don't trust comments over the actual control flow.
 
-Phase 4 will add `tool_call`, `auto_exec`, and `confirmed_write` incident types — the same invariant must hold for them.
+### Telemetry sanitization invariant (do not break)
+
+`pkg/telemetry/logger.go` may read **only** the structured side-fields on the `k8s` diagnostic structs (`EventReasons`, `ReplicaCounts`, `SchedulerReason`, `WorstPodContainers`, etc.), never the formatted-string fields (`Events`, `PodSpec`, `PodSummary`, `DeploymentName`, `PodName`, `Namespace`, …) which carry cluster identifiers. The single allowed exception is `data.WorstPodLogs` → `log_tail` on the crash and rollout paths. This is enforced by a reviewable grep that must return **zero matches**:
+
+```
+grep -nE 'data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary|PVCSummary|ReplicaSets|PDBs|DeploymentName|PodName|Namespace|DeploymentSpec)' pkg/telemetry/logger.go
+```
+
+Telemetry row (`incidents` table): `incident_type`, `error_type`, `signals` (jsonb, schema-flexible per type), `diagnosis`, `confidence`, `cluster_id` (SHA-256 of server URL, first 8 bytes), `model`, `created_at`. Never store pod/namespace/deployment names, env var values, image strings, secret names, or real cluster URLs.
 
 ## Code style
-- Errors wrapped with `%w`, returned to `main.go` for printing
-- `context.Context` in every function that does I/O
-- No global state — pass dependencies explicitly
-- Comment the WHY, not the WHAT
+- Errors wrapped with `%w`, returned up to `main.go` for printing.
+- `context.Context` in every function that does I/O.
+- No global state — pass dependencies explicitly. (`pkg/k8s/generic.go`'s `sync.Once`-cached dynamic client is the deliberate exception: discovery is expensive and per-process.)
+- Comment the WHY, not the WHAT.
 
 ## Do not
-- Do not add a web server, database, or persistence layer
-- Do not add authentication or multi-tenancy
-- Do not introduce LLM frameworks (LangChain, LlamaIndex, etc.) — direct HTTP to Anthropic is the rule
-- Do not store pod names, namespace names, env var values, or actual cluster URLs in telemetry
-- Do not bypass the four-guard auto-exec check (Phase 4 onwards). Fail-closed is the rule: any uncertainty falls back to confirmation prompt
-- Do not add subcommands to `zanecli`. The product is a chat session. Power-user one-shot mode is reserved for a future `--prompt` flag, not bare-arg subcommands
+- No web server, database, or persistence layer beyond the JSONL history file.
+- No auth or multi-tenancy.
+- No LLM frameworks (LangChain, LlamaIndex, SDKs) — direct HTTP to Anthropic is the rule.
+- No subcommands and no bare-arg one-shot mode. The product is a chat session; a future `--prompt` flag is the only sanctioned non-interactive path.
+- Do not store cluster identifiers in telemetry (see invariant above).
+- Do not bypass `pkg/safety` for writes. Fail-closed is the rule: any uncertainty → `Confirm`.
+- Do not let `get_resource` (or any new generic accessor) issue anything but Get/List, and keep its Secret-value redaction.

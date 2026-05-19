@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -26,7 +27,8 @@ import (
 // In Go, this is how you do "classes" — a struct + methods with a receiver.
 type Client struct {
 	clientset *kubernetes.Clientset
-	serverURL string // API server URL, used to generate an anonymous cluster fingerprint
+	serverURL string          // API server URL, used to generate an anonymous cluster fingerprint
+	restConfig *rest.Config   // kept so the generic get_resource tool can build a dynamic client + RESTMapper
 }
 
 // ServerURL returns the cluster API server URL for anonymization purposes.
@@ -95,7 +97,7 @@ func NewClient(kubeconfigPath string) (*Client, error) {
 		return nil, fmt.Errorf("could not create kubernetes client: %w", err)
 	}
 
-	return &Client{clientset: clientset, serverURL: config.Host}, nil
+	return &Client{clientset: clientset, serverURL: config.Host, restConfig: config}, nil
 }
 
 // NamespaceInventory is the cheap-to-fetch list of resources used by the `ask`
