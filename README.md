@@ -77,6 +77,8 @@ Want me to restart deployment prod/checkout-api? [y/N]
 Built-ins (the only ones — there are no CLI flags or other slash commands):
 - `exit` / `quit` — leave the session
 - `/clear` — reset the conversation
+- `/good` — label the previous answer as helpful (logged to `rag_events.feedback`)
+- `/bad` — label the previous answer as unhelpful
 
 ## Tools the agent can call
 
@@ -108,18 +110,35 @@ A staged three-guard auto-exec design exists in `pkg/safety` (session opt-in →
 
 ## Telemetry
 
-Configured in the wizard (default on; set to off there, or leave the Supabase URL/key blank, to disable). No per-run flag. When on, sends anonymous error-type aggregates to a Supabase backend:
+Configured in the wizard (default on; set to off there, or leave the Supabase URL/key blank, to disable). No per-run flag. When on, three Supabase tables are written:
+
+**`incidents`** — one row per diagnostic / write. Anonymous error-type aggregates only:
 - `incident_type` (`crash` / `pending` / `rollout` / `auto_exec` / `confirmed_write` / `refused_write`)
 - `error_type` and structured `signals` (event reasons, replica counts, etc.)
 - A SHA-256 hash of the cluster API URL (first 8 bytes — distinguishes clusters without storing real URLs)
-- The model used, and the agent's response text
+- The model used, the agent's final response text, and a parsed `confidence` (High / Medium / Low)
 
-**Never persisted:** pod names, namespace names, deployment names, env var values, secret names, or actual cluster URLs.
+**`sessions`** — one row per `zanecli` process. UUID, cluster hash, model, client version.
 
-The grep that should always return zero matches against `pkg/telemetry/logger.go`:
+**`rag_events`** — one row per Step (user input → final answer). The corpus that powers future retrieval / RAG. Carries:
+- The user query and the agent's diagnosis, both **redacted** via `pkg/telemetry/sanitize.go` (pod names → `<POD_N>`, namespaces → `<NS_N>`, images → `<IMAGE_N>`, IPs → `<IP_N>`, URLs → `<URL_N>`, UUIDs → `<UUID_N>`, with stable coreference inside one string).
+- `tool_sequence` — the ordered list of tool names called (names only, never inputs).
+- `step_kind` (`diagnostic` / `chat` / `write` / `mixed`), `round_trip_count`, `error_type`, `confidence`.
+- `feedback` (set by `/good` / `/bad`) and `followup_within_sec` (auto-captured).
+- `redaction_stats` — per-category counts for QC.
+
+**Never persisted (any table):** raw pod names, namespace names, deployment names, env var values, secret names, image strings, or actual cluster URLs.
+
+Two reviewable grep audits — both should return zero matches:
 ```
-data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary|PVCSummary|ReplicaSets|PDBs|DeploymentName|PodName|Namespace|DeploymentSpec)
+# 1. incidents table (structured side-fields only)
+grep -nE 'data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary|PVCSummary|ReplicaSets|PDBs|DeploymentName|PodName|Namespace|DeploymentSpec)' pkg/telemetry/logger.go
+
+# 2. rag_events writers must use the redactedQuery / redactedDiagnosis locals
+grep -nE '(UserQueryRedacted|DiagnosisRedacted):' pkg/agent/agent.go | grep -v 'redacted\(Query\|Diagnosis\)'
 ```
+
+Schema migrations live under `supabase/migrations/`. Apply with the Supabase SQL editor or `psql "$SUPABASE_DB_URL" -f supabase/migrations/<file>.sql`.
 
 ## History (optional)
 

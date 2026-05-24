@@ -24,6 +24,11 @@ import (
 	"zanecli/pkg/ui"
 )
 
+// ClientVersion is injected at build time via -ldflags
+// (e.g. -X main.ClientVersion=$(git rev-parse --short HEAD)). It identifies
+// which client cut produced a row in the sessions table.
+var ClientVersion = "dev"
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -65,7 +70,7 @@ func main() {
 	confirmer := &stdinConfirmer{scanner: scanner}
 
 	registry := tools.NewRegistry(client)
-	sess := agent.NewSession(cfg, client, registry, confirmer)
+	sess := agent.NewSession(cfg, client, registry, confirmer, ClientVersion)
 	// Session implements tools.DiagnosticSink — wire it so diagnose_pod
 	// and diagnose_rollout can hand back their structured payloads for
 	// end-of-Step Supabase logging.
@@ -93,7 +98,7 @@ func main() {
 		offerResume(sess, scanner)
 	}
 
-	fmt.Println("Type your question, or 'exit' to quit. Use /clear to reset the conversation.")
+	fmt.Println("Type your question, or 'exit' to quit. /clear resets the chat; /good and /bad label the last answer.")
 	fmt.Println()
 
 	// Track the persisted prefix so we only append new messages after each Step.
@@ -114,6 +119,20 @@ func main() {
 			sess.Clear()
 			persistedPrefix = 0
 			fmt.Println("(conversation cleared)")
+			continue
+		case "/good":
+			if sess.MarkFeedback(+1) {
+				fmt.Println("(thanks — logged as 👍)")
+			} else {
+				fmt.Println("(no prior answer to label yet)")
+			}
+			continue
+		case "/bad":
+			if sess.MarkFeedback(-1) {
+				fmt.Println("(thanks — logged as 👎; we'll use it to improve)")
+			} else {
+				fmt.Println("(no prior answer to label yet)")
+			}
 			continue
 		}
 

@@ -389,3 +389,158 @@ func truncate(s string, maxBytes int) string {
 	}
 	return s[len(s)-maxBytes:] // keep the tail — most recent output is most relevant
 }
+
+// ---------------------------------------------------------------------------
+// RAG capture: sessions + rag_events tables (migration 0002).
+//
+// These writers carry free text (user query, agent diagnosis). The text MUST
+// be passed through Redact() before being attached to a Session or RagEvent;
+// the sanitization invariant for the rag_events table is enforced in
+// pkg/telemetry/sanitize.go and at the call sites in pkg/agent/agent.go.
+// ---------------------------------------------------------------------------
+
+// Session is the row written once per zanecli process to the `sessions` table.
+type Session struct {
+	ID            string `json:"id"`             // uuid (random per process)
+	ClusterID     string `json:"cluster_id"`     // already-hashed (AnonymizeCluster)
+	Model         string `json:"model"`
+	ClientVersion string `json:"client_version"` // ldflags-injected build tag
+	AutoExecOn    bool   `json:"auto_exec_on"`
+}
+
+// RagEvent is the row written once per Step to the `rag_events` table.
+// All free-text fields must be pre-redacted.
+type RagEvent struct {
+	SessionID          string         `json:"session_id"`
+	StepIndex          int            `json:"step_index"`
+	ClusterID          string         `json:"cluster_id"`
+	UserQueryRedacted  string         `json:"user_query_redacted"`
+	DiagnosisRedacted  string         `json:"diagnosis_redacted,omitempty"`
+	ToolSequence       []string       `json:"tool_sequence"`
+	RoundTripCount     int            `json:"round_trip_count"`
+	StepKind           string         `json:"step_kind"` // diagnostic | chat | write | mixed
+	ErrorType          string         `json:"error_type,omitempty"`
+	Confidence         string         `json:"confidence,omitempty"`
+	IncidentID         *int64         `json:"incident_id,omitempty"`
+	RedactionStats     RedactionStats `json:"redaction_stats"`
+}
+
+// EnsureSession upserts the session row. Idempotent — safe to call multiple
+// times with the same id (subsequent calls return 409 which we swallow).
+// Fire-and-forget like postIncident; never blocks the caller meaningfully.
+func EnsureSession(s Session) {
+	url, key := getSupabaseConfig()
+	if url == "" || key == "" {
+		return
+	}
+	body, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		url+"/rest/v1/sessions", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("apikey", key)
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
+	// `resolution=ignore-duplicates` makes the POST idempotent: re-running
+	// EnsureSession with the same id is a no-op rather than a 409.
+	req.Header.Set("Prefer", "return=minimal,resolution=ignore-duplicates")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}
+
+// LogRagEvent inserts one rag_events row and returns its server-assigned id.
+// Returns 0 + nil error when telemetry is disabled (no creds), so callers can
+// treat the result uniformly. The id is needed for later PatchFeedback /
+// PatchFollowupGap calls.
+func LogRagEvent(e RagEvent) (int64, error) {
+	url, key := getSupabaseConfig()
+	if url == "" || key == "" {
+		return 0, nil
+	}
+	body, err := json.Marshal(e)
+	if err != nil {
+		return 0, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		url+"/rest/v1/rag_events", bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("apikey", key)
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
+	// representation so we can read back the bigserial id.
+	req.Header.Set("Prefer", "return=representation")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("rag_events insert: status %d", resp.StatusCode)
+	}
+	var rows []struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return rows[0].ID, nil
+}
+
+// PatchFeedback sets the feedback column on an existing rag_events row.
+// Used by the /good and /bad REPL commands. value should be -1, 0, or +1.
+func PatchFeedback(id int64, value int) {
+	patchRagEvent(id, map[string]any{"feedback": value})
+}
+
+// PatchFollowupGap sets followup_within_sec on a rag_events row. Called at
+// the start of the next Step in a session, so a short gap correlates with
+// dissatisfaction (or just a fast follow-up question — both signals matter).
+func PatchFollowupGap(id int64, seconds int) {
+	patchRagEvent(id, map[string]any{"followup_within_sec": seconds})
+}
+
+func patchRagEvent(id int64, patch map[string]any) {
+	url, key := getSupabaseConfig()
+	if url == "" || key == "" || id == 0 {
+		return
+	}
+	body, err := json.Marshal(patch)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	endpoint := fmt.Sprintf("%s/rest/v1/rag_events?id=eq.%d", url, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("apikey", key)
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Prefer", "return=minimal")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}

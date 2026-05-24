@@ -118,6 +118,17 @@ func (r *Registry) AnthropicSchema() []ai.ToolDef {
 	return out
 }
 
+// IsDiagnosticTool reports whether a tool name is one of the heavy
+// diagnose_* bundles. Used by the agent's RAG telemetry to classify a
+// Step's step_kind alongside safety.IsWriteTool.
+func IsDiagnosticTool(name string) bool {
+	switch name {
+	case "diagnose_pod", "diagnose_rollout":
+		return true
+	}
+	return false
+}
+
 // --- shared input-parsing helpers used by the individual tool files ---
 
 // stringField returns a string field from the parsed input, or fallback.

@@ -77,6 +77,20 @@ grep -nE 'data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary
 
 Telemetry row (`incidents` table): `incident_type`, `error_type`, `signals` (jsonb, schema-flexible per type), `diagnosis`, `confidence`, `cluster_id` (SHA-256 of server URL, first 8 bytes), `model`, `created_at`. Never store pod/namespace/deployment names, env var values, image strings, secret names, or real cluster URLs.
 
+### RAG capture: `sessions` + `rag_events` (migration 0002)
+
+A parallel capture path stores per-Step rich data for the future RAG corpus. The free-text fields (`user_query_redacted`, `diagnosis_redacted`) MUST be passed through `telemetry.Redact()` (`pkg/telemetry/sanitize.go`) before leaving the process — that's the enforcement for the rag_events table, equivalent to the structured-side-fields rule for `incidents`. The redactor templates pod names → `<POD_N>`, namespaces → `<NS_N>`, images → `<IMAGE_N>`, IPs → `<IP_N>`, URLs → `<URL_N>`, UUIDs → `<UUID_N>` with stable coreference inside one string. Over-redaction is acceptable; under-redaction breaks the invariant.
+
+Naming convention enforces the audit: every assignment to `UserQueryRedacted` or `DiagnosisRedacted` must be one of the locals `redactedQuery` / `redactedDiagnosis`, populated immediately above the struct literal from `telemetry.Redact(...)`. The grep:
+
+```
+grep -nE '(UserQueryRedacted|DiagnosisRedacted):' pkg/agent/agent.go | grep -v 'redacted\(Query\|Diagnosis\)'
+```
+
+Expected: zero matches. If anything matches, a bypass has been introduced — investigate before merging.
+
+Tool inputs are NEVER logged. Only tool *names* go into `rag_events.tool_sequence`. If you add a new tool, no new sanitization work is needed — names are already safe by construction; inputs stay out of telemetry.
+
 ## Code style
 - Errors wrapped with `%w`, returned up to `main.go` for printing.
 - `context.Context` in every function that does I/O.

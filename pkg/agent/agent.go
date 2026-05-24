@@ -15,6 +15,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"zanecli/pkg/ai"
 	"zanecli/pkg/config"
@@ -62,6 +66,17 @@ type Session struct {
 	// end_turn exit of Step (one telemetry row per entry, with the agent's
 	// final text as `diagnosis`), discarded at the round-trip-cap exit.
 	pendingDiagnostics []capturedDiagnostic
+
+	// RAG capture state (migration 0002). One sessionID per process; one
+	// rag_events row per Step. lastRagEventID lets /good /bad patch the
+	// most recent row, and lastStepEndedAt drives followup_within_sec.
+	sessionID           string
+	clientVersion       string
+	stepIndex           int
+	currentToolSequence []string
+	currentUserInput    string
+	lastRagEventID      int64
+	lastStepEndedAt     time.Time
 }
 
 // capturedDiagnostic is one structured diagnostic gathered during a Step.
@@ -91,23 +106,54 @@ func (s *Session) RecordRollout(d *k8s.RolloutDiagnosticData) {
 // NewSession wires the dependencies and produces a session ready to Step.
 // confirmer must not be nil when write tools are in the registry; passing
 // nil disables every write (they all fall through to the default-no path).
-func NewSession(cfg *config.Config, client *k8s.Client, registry *tools.Registry, confirmer Confirmer) *Session {
-	return &Session{
-		cfg:       cfg,
-		client:    client,
-		registry:  registry,
-		claude:    ai.NewClaudeClient(cfg.AnthropicAPIKey),
-		guard:     safety.NewGuard(cfg),
-		confirmer: confirmer,
+// clientVersion is the ldflags-injected build tag; it identifies which
+// client version produced a row in the sessions table.
+func NewSession(cfg *config.Config, client *k8s.Client, registry *tools.Registry, confirmer Confirmer, clientVersion string) *Session {
+	s := &Session{
+		cfg:           cfg,
+		client:        client,
+		registry:      registry,
+		claude:        ai.NewClaudeClient(cfg.AnthropicAPIKey),
+		guard:         safety.NewGuard(cfg),
+		confirmer:     confirmer,
+		sessionID:     uuid.NewString(),
+		clientVersion: clientVersion,
 	}
+	// Fire-and-forget upsert of the session row. EnsureSession is a no-op
+	// when telemetry is disabled or creds are unset, so it's always safe.
+	if cfg.TelemetryEnabled {
+		telemetry.EnsureSession(telemetry.Session{
+			ID:            s.sessionID,
+			ClusterID:     telemetry.AnonymizeCluster(client.ServerURL()),
+			Model:         "claude-sonnet-4-20250514",
+			ClientVersion: clientVersion,
+			AutoExecOn:    cfg.AutoExec,
+		})
+	}
+	return s
+}
+
+// MarkFeedback patches the most recently-logged rag_events row with a
+// +1 (good) or -1 (bad) label. No-op when there is no prior row (e.g.
+// /good typed before any Step). Used by main.go's /good /bad REPL commands.
+func (s *Session) MarkFeedback(value int) bool {
+	if s.lastRagEventID == 0 {
+		return false
+	}
+	telemetry.PatchFeedback(s.lastRagEventID, value)
+	return true
 }
 
 // Clear drops the conversation history. Used by the `/clear` REPL builtin.
+// RAG capture state (sessionID, stepIndex, lastRagEventID) is preserved —
+// /clear resets the LLM's context, not the analytics session.
 func (s *Session) Clear() {
 	s.messages = nil
 	s.turnCount = 0
 	s.autoExecCount = 0
 	s.pendingDiagnostics = nil
+	s.currentToolSequence = nil
+	s.currentUserInput = ""
 }
 
 // Messages returns the current conversation history. Used by pkg/history
@@ -133,6 +179,15 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		return nil
 	}
 
+	// RAG capture: reset per-Step state and record the followup gap on the
+	// previous row before it goes stale.
+	s.currentToolSequence = nil
+	s.currentUserInput = userInput
+	if !s.lastStepEndedAt.IsZero() && s.lastRagEventID != 0 {
+		gap := int(time.Since(s.lastStepEndedAt).Seconds())
+		go telemetry.PatchFollowupGap(s.lastRagEventID, gap)
+	}
+
 	// Append the user's message in content-block form.
 	s.messages = append(s.messages, ai.AgentMessage{
 		Role: "user",
@@ -141,7 +196,9 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		},
 	})
 
+	roundCount := 0
 	for round := 0; round < maxStepRoundTrips; round++ {
+		roundCount = round + 1
 		resp, err := s.claude.AgentTurn(ctx, ai.AgentRequest{
 			System:   systemPrompt(),
 			Messages: s.messages,
@@ -169,6 +226,7 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 				}
 			case "tool_use":
 				toolUses = append(toolUses, block)
+				s.currentToolSequence = append(s.currentToolSequence, block.Name)
 			}
 		}
 		if hasAnyText(resp.Content) {
@@ -176,7 +234,9 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		}
 
 		if len(toolUses) == 0 || resp.StopReason == "end_turn" {
-			s.drainDiagnostics(resp.Content)
+			finalText := concatText(resp.Content)
+			s.drainDiagnostics(finalText)
+			s.logRagEvent(finalText, roundCount)
 			return nil
 		}
 
@@ -195,18 +255,23 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 	}
 
 	// Cap-hit exit: the final text is the limiter message, not a real
-	// diagnosis. Discard the buffer rather than log misleading rows.
+	// diagnosis. Discard the diagnostic buffer rather than log misleading
+	// rows to `incidents`, but still log the rag_events row — the user's
+	// query and the tool sequence that triggered a cap-hit are valuable
+	// training signal in their own right.
 	s.pendingDiagnostics = nil
-	fmt.Fprintln(out, "(reached the per-turn tool-use limit; reply or /clear to continue)")
+	const capMsg = "(reached the per-turn tool-use limit; reply or /clear to continue)"
+	fmt.Fprintln(out, capMsg)
+	s.logRagEvent(capMsg, roundCount)
 	return nil
 }
 
 // drainDiagnostics fires one telemetry row per captured diagnostic and
-// clears the buffer. The agent's final text from the closing assistant
-// message is shared across rows as the `diagnosis` field. Gated on the
-// session's telemetry-enabled flag; the buffer is always cleared so a
-// disabled-telemetry session doesn't accumulate.
-func (s *Session) drainDiagnostics(finalContent []ai.ContentBlock) {
+// clears the buffer. The agent's final text is shared across rows as the
+// `diagnosis` field. Gated on the session's telemetry-enabled flag; the
+// buffer is always cleared so a disabled-telemetry session doesn't
+// accumulate.
+func (s *Session) drainDiagnostics(finalText string) {
 	if len(s.pendingDiagnostics) == 0 {
 		return
 	}
@@ -216,7 +281,6 @@ func (s *Session) drainDiagnostics(finalContent []ai.ContentBlock) {
 		return
 	}
 
-	finalText := concatText(finalContent)
 	serverURL := s.client.ServerURL()
 	for _, d := range s.pendingDiagnostics {
 		switch d.kind {
@@ -228,6 +292,102 @@ func (s *Session) drainDiagnostics(finalContent []ai.ContentBlock) {
 			telemetry.LogRolloutIncident(d.rollout, finalText, serverURL)
 		}
 	}
+}
+
+// logRagEvent writes one row to rag_events for the just-completed Step.
+// Fires even when no diagnostic tool ran (non-diagnostic chat is part of
+// the moat too). Free text is redacted via pkg/telemetry/sanitize.go
+// before leaving the process.
+func (s *Session) logRagEvent(finalText string, roundCount int) {
+	// Always advance step state even when telemetry is off so /clear
+	// behaviour and stepIndex stay consistent across sessions.
+	defer func() {
+		s.stepIndex++
+		s.lastStepEndedAt = time.Now()
+	}()
+
+	if !s.cfg.TelemetryEnabled {
+		return
+	}
+
+	// The variable names redactedQuery / redactedDiagnosis are part of the
+	// rag_events sanitization audit (see CLAUDE.md). Do not assign anything
+	// to UserQueryRedacted / DiagnosisRedacted that isn't one of these two
+	// locals — the audit grep is keyed on the name match.
+	redactedQuery, qStats := telemetry.Redact(s.currentUserInput)
+	redactedDiagnosis, dStats := telemetry.Redact(finalText)
+	merged := telemetry.RedactionStats{
+		Pods:       qStats.Pods + dStats.Pods,
+		Namespaces: qStats.Namespaces + dStats.Namespaces,
+		Images:     qStats.Images + dStats.Images,
+		IPs:        qStats.IPs + dStats.IPs,
+		URLs:       qStats.URLs + dStats.URLs,
+		UUIDs:      qStats.UUIDs + dStats.UUIDs,
+	}
+
+	event := telemetry.RagEvent{
+		SessionID:         s.sessionID,
+		StepIndex:         s.stepIndex,
+		ClusterID:         telemetry.AnonymizeCluster(s.client.ServerURL()),
+		UserQueryRedacted: redactedQuery,
+		DiagnosisRedacted: redactedDiagnosis,
+		ToolSequence:      append([]string{}, s.currentToolSequence...),
+		RoundTripCount:    roundCount,
+		StepKind:          classifyStepKind(s.currentToolSequence),
+		Confidence:        extractConfidenceClient(finalText),
+		RedactionStats:    merged,
+	}
+
+	id, err := telemetry.LogRagEvent(event)
+	if err != nil || id == 0 {
+		return
+	}
+	s.lastRagEventID = id
+}
+
+// classifyStepKind derives step_kind from the tool names called this Step.
+// 'mixed' means both a diagnostic and a write happened (rare but possible).
+func classifyStepKind(seq []string) string {
+	hasDiag, hasWrite := false, false
+	for _, name := range seq {
+		if tools.IsDiagnosticTool(name) {
+			hasDiag = true
+		}
+		if safety.IsWriteTool(name) {
+			hasWrite = true
+		}
+	}
+	switch {
+	case hasDiag && hasWrite:
+		return "mixed"
+	case hasDiag:
+		return "diagnostic"
+	case hasWrite:
+		return "write"
+	default:
+		return "chat"
+	}
+}
+
+// extractConfidenceClient mirrors pkg/telemetry/logger.go's extractConfidence
+// so we can populate rag_events.confidence without exporting the helper.
+func extractConfidenceClient(diagnosis string) string {
+	lines := strings.Split(diagnosis, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, "Confidence") || i+1 >= len(lines) {
+			continue
+		}
+		next := strings.TrimSpace(lines[i+1])
+		switch {
+		case strings.HasPrefix(next, "High"):
+			return "High"
+		case strings.HasPrefix(next, "Medium"):
+			return "Medium"
+		case strings.HasPrefix(next, "Low"):
+			return "Low"
+		}
+	}
+	return ""
 }
 
 // concatText joins the text blocks from an assistant response. Tool_use
@@ -425,8 +585,12 @@ Output format for substantive answers:
 - One-sentence direct answer first.
 - 2–3 short bullets of evidence drawn from tool results — quote concrete values (probe path, image tag, replica counts, exit code, event reason).
 - If the question implies action, end with a "Next step:" line containing one concrete kubectl one-liner command or the name of the tool you intend to run.
+- Finish with a confidence line — exactly two lines, no extra prose:
+    ## Confidence
+    High|Medium|Low — <one-sentence reason>
+  Pick High when the evidence directly identifies the cause (e.g. CrashLoopBackOff with a clear exit code in logs), Medium when the evidence is consistent with one cause but other causes aren't ruled out, Low when you're guessing or the tools didn't return enough signal.
 
-For chit-chat or trivial questions, drop the format and just answer briefly.
+For chit-chat or trivial questions, drop the format and just answer briefly (no confidence line needed).
 
 Tone: plain English. No hedging ("it could be many things"). Pick the most likely cause and commit. No preamble, no closing pleasantries.`
 }
