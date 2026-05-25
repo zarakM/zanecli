@@ -27,14 +27,25 @@ CI runs the suite plus two grep-based invariant guards (see [Telemetry sanitizat
 
 `testdata/` still holds manual smoke targets (`crashloop-pod.yaml`, `stuck-rollout.yaml`) you apply to a real cluster and then drive the agent against; they are not automated tests.
 
-Production build with telemetry baked in:
+Production build with telemetry baked in (manual; the release flow below does this automatically):
 ```bash
 GOOS=linux GOARCH=amd64 go build -ldflags "\
-  -X zanecli/pkg/telemetry.supabaseURL=https://yourproject.supabase.co \
-  -X zanecli/pkg/telemetry.supabaseKey=your-anon-key" \
+  -X main.ClientVersion=v0.1.0 \
+  -X github.com/zarakM/zanecli/pkg/telemetry.supabaseURL=https://yourproject.supabase.co \
+  -X github.com/zarakM/zanecli/pkg/telemetry.supabaseKey=your-anon-key" \
   -o zanecli-linux .
 ```
 Credential precedence (highest → lowest): `SUPABASE_URL`/`SUPABASE_KEY` env vars > `~/.zanecli/config.json` (passed in via `telemetry.SetSupabaseConfig`) > ldflags-baked defaults. Same env-wins precedence for `ANTHROPIC_API_KEY` / `KUBECONFIG` over the config file.
+
+### Releases
+
+Cutting a release is one tag + push:
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+`.github/workflows/release.yml` triggers on any `v*` tag and invokes GoReleaser per `.goreleaser.yaml`. GoReleaser cross-compiles for Linux/macOS/Windows (amd64 + arm64; Windows-arm64 skipped), bundles each binary with `LICENSE` and `README.md`, generates `checksums.txt`, and attaches everything to a GitHub Release. Pre-release tags (`v0.1.0-rc.1`) are marked as pre-release automatically.
+
+ldflag injection at release time is GoReleaser's responsibility — `.goreleaser.yaml` reads `{{.Version}}` for `main.ClientVersion`, plus `SUPABASE_URL` / `SUPABASE_KEY` from repo secrets (silently empty if unset). **`go install github.com/zarakM/zanecli@v0.1.0` does NOT apply these ldflags** — it builds from source, so `ClientVersion` stays `dev` and any Supabase creds you'd baked in via secrets are absent. Production users should download the release archive; `go install` is the developer / contributor path.
 
 ## Architecture
 

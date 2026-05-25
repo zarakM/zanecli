@@ -15,15 +15,32 @@ zanecli is a chat session that:
 
 ## Install
 
-With `go install` (Go 1.22+):
+### Pre-built binary (recommended)
+
+Download the archive for your OS/arch from the [latest release](https://github.com/zarakM/zanecli/releases/latest), extract it, and move `zanecli` onto your `PATH`:
+
+```bash
+# macOS arm64 (Apple Silicon). Adjust the asset name for your platform.
+curl -L -o zanecli.tar.gz \
+  https://github.com/zarakM/zanecli/releases/latest/download/zanecli_0.1.0_Darwin_arm64.tar.gz
+tar -xzf zanecli.tar.gz
+sudo mv zanecli /usr/local/bin/zanecli
+zanecli  # first launch triggers the wizard
+```
+
+Archives are available for `Darwin_arm64`, `Darwin_x86_64`, `Linux_arm64`, `Linux_x86_64`, and `Windows_x86_64` (zip). `checksums.txt` is published alongside; verify with `shasum -a 256 -c checksums.txt`.
+
+Pre-built binaries embed the release tag in `main.ClientVersion` (visible in telemetry) — that's the right path for production use.
+
+### `go install` (Go 1.22+)
 
 ```bash
 go install github.com/zarakM/zanecli@latest
 ```
 
-The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`.
+The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`. Note that `go install` builds from source, so the release-tag ldflag is **not** applied — `ClientVersion` will be `dev`.
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/zarakM/zanecli
@@ -153,6 +170,27 @@ Schema migrations live under `supabase/migrations/`. Apply with the Supabase SQL
 If you opt in during the wizard, each session is appended to `~/.zanecli/history/<UTC-timestamp>.jsonl` (one message per line, mode 0600). On launch, zanecli offers to resume the most recent session.
 
 History stays on your machine. It contains resource names from your cluster — never uploaded.
+
+## Troubleshooting
+
+### `API returned status 429: rate_limit_error`
+
+Anthropic's per-minute input-token limit. Anthropic tool use re-sends the full conversation (system prompt + tool schemas + every prior message) on every round-trip, so a multi-tool diagnostic Step can easily cross **30K input tokens/min** (the Tier 1 cap for Sonnet).
+
+Fixes, easiest first:
+
+1. **Wait ~60 seconds and retry.** The limit is rolling per-minute.
+2. **Upgrade your Anthropic tier.** Add any amount of credits at https://console.anthropic.com/settings/billing to move to Tier 2 (Sonnet: 80K TPM). Tier 3 is 200K TPM.
+3. **Switch the model to Haiku.** Edit `pkg/ai/claude.go:24` from `claude-sonnet-4-20250514` to `claude-haiku-4-5-20251001`, rebuild. Haiku gets 50K TPM on Tier 1 and is plenty capable for tool-use orchestration.
+4. **Cap log/event tool results.** If you're hitting the limit on the third or fourth turn of one Step, `get_pod_logs` is usually the culprit — large log tails dominate the next request's input. Lowering the default tail in `pkg/tools/logs_events.go` shrinks every subsequent turn.
+
+### `kubeconfig: ... no such file or directory`
+
+Either set `KUBECONFIG` to a real path, or edit `~/.zanecli/config.json` and update `kubeconfig_path`. Env vars override the file on every launch.
+
+### Writes prompt every time, even for safe-looking restarts
+
+That's by design — `AutoExec` is hard-off in `main.go` for the v1 build. See [Safety: writes always confirm](#safety-writes-always-confirm).
 
 ## Development
 
