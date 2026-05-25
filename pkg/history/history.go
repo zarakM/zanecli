@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"zanecli/pkg/ai"
+	"github.com/zarakM/zanecli/pkg/ai"
 )
 
 // HistoryDir returns the directory where session JSONLs live.

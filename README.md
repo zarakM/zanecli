@@ -15,10 +15,18 @@ zanecli is a chat session that:
 
 ## Install
 
-Build from source (the module path is local; there is no `go install` remote):
+With `go install` (Go 1.22+):
 
 ```bash
-git clone <this-repo>
+go install github.com/zarakM/zanecli@latest
+```
+
+The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`.
+
+Or build from source:
+
+```bash
+git clone https://github.com/zarakM/zanecli
 cd zanecli
 go build -o zanecli .
 cp zanecli /usr/local/bin/zanecli

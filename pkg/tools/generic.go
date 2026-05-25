@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/k8s"
 )
 
 type GetResourceTool struct {

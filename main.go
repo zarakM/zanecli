@@ -15,13 +15,13 @@ import (
 	"strings"
 	"syscall"
 
-	"zanecli/pkg/agent"
-	"zanecli/pkg/config"
-	"zanecli/pkg/history"
-	"zanecli/pkg/k8s"
-	"zanecli/pkg/telemetry"
-	"zanecli/pkg/tools"
-	"zanecli/pkg/ui"
+	"github.com/zarakM/zanecli/pkg/agent"
+	"github.com/zarakM/zanecli/pkg/config"
+	"github.com/zarakM/zanecli/pkg/history"
+	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/telemetry"
+	"github.com/zarakM/zanecli/pkg/tools"
+	"github.com/zarakM/zanecli/pkg/ui"
 )
 
 // ClientVersion is injected at build time via -ldflags

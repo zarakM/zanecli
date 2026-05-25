@@ -16,10 +16,10 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"zanecli/pkg/ai"
-	"zanecli/pkg/config"
-	"zanecli/pkg/k8s"
-	"zanecli/pkg/tools"
+	"github.com/zarakM/zanecli/pkg/ai"
+	"github.com/zarakM/zanecli/pkg/config"
+	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/tools"
 )
 
 // ---- classifyStepKind ----

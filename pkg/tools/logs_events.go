@@ -12,7 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/k8s"
 )
 
 // --- get_pod_logs ---

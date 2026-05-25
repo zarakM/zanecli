@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/k8s"
 )
 
 // IncidentLog is the row written to the `incidents` table.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"zanecli/pkg/ai"
+	"github.com/zarakM/zanecli/pkg/ai"
 )
 
 // withTempHome sets HOME so HistoryDir() resolves under a t.TempDir.

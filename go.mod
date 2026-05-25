@@ -1,4 +1,4 @@
-module zanecli
+module github.com/zarakM/zanecli
 
 go 1.22
 
