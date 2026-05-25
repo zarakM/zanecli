@@ -2,7 +2,7 @@
 .env
 *.env
 .env.local
-
+.mcp.json
 # compiled binaries (all platforms)
 kubectl-ai
 kubectl-ai-linux

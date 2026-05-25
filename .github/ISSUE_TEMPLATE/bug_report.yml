@@ -1,0 +1,96 @@
+name: Bug report
+description: Something zanecli did wrong, crashed on, or refused to do that it should have done.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for opening a bug. The three things that make zanecli bugs easy to fix are: the **user prompt** that triggered it, the **tool calls** the agent made (visible as `[tool_name...]` lines in the chat), and the **cluster shape** (the kind of resource it was investigating). Please include all three when relevant.
+
+  - type: input
+    id: version
+    attributes:
+      label: zanecli version
+      description: The release tag you installed (e.g. v0.1.0) or the git SHA you built from. zanecli prints its version at startup; you can also check it via the `ClientVersion` field in any telemetry row.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How did you install it?
+      options:
+        - go install
+        - Downloaded a release binary
+        - Built from source (go build)
+        - Other (please describe in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / arch
+      placeholder: "macOS 14.4 / arm64, Ubuntu 22.04 / amd64, etc."
+    validations:
+      required: true
+
+  - type: input
+    id: k8s-version
+    attributes:
+      label: Kubernetes version (`kubectl version --short`)
+      placeholder: v1.29.3
+    validations:
+      required: false
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: The user prompt that triggered the bug
+      description: Paste the exact question you asked zanecli.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: tool-calls
+    attributes:
+      label: Tool calls the agent made (the `[tool_name...]` lines)
+      description: Copy the bracketed status lines that zanecli printed during the failing turn.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include any error message zanecli printed and the agent's final answer if there was one. Redact pod / namespace / image names if sensitive.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A `kubectl apply -f -` snippet that creates the failing workload, if applicable. `testdata/crashloop-pod.yaml` is an example of the format.
+      render: yaml
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Anything else — logs, screenshots, related issues, install quirks.
+    validations:
+      required: false

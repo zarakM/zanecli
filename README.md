@@ -2,7 +2,7 @@
 
 > Talk to your cluster. Investigate, explain, fix.
 
-`zanecli` is a terminal chat for Kubernetes. Run `zanecli`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of safe writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, with a four-guard safety check before anything touches the API.
+`zanecli` is a terminal chat for Kubernetes. Run `zanecli`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, but every cluster mutation asks for a `y/N` confirmation first.
 
 ## Why this exists
 
@@ -10,19 +10,23 @@ Kubectl is great at *fetching state*. Dashboards are great at *showing state*. N
 
 zanecli is a chat session that:
 - **Investigates before answering.** Asks "why is checkout-api broken?" → fetches pod list → diagnoses the worst replica → cites the failing readiness probe and the relevant log lines.
-- **Acts when it's safe.** "Yes please restart it" → runs `kubectl rollout restart` after re-checking the deployment is actually stuck and the namespace isn't production.
+- **Acts when you approve.** "Yes please restart it" → shows you the exact write, asks `y/N`, and only then issues the `kubectl rollout restart`-equivalent patch.
 - **Stays out of your way otherwise.** Conversational answers, no formal incident reports unless you want one.
 
 ## Install
 
+With `go install` (Go 1.22+):
+
 ```bash
-go install zanecli@latest
+go install github.com/zarakM/zanecli@latest
 ```
+
+The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`.
 
 Or build from source:
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/zarakM/zanecli
 cd zanecli
 go build -o zanecli .
 cp zanecli /usr/local/bin/zanecli
@@ -41,13 +45,12 @@ zanecli
 ```
 
 A wizard prompts you for:
-- **Anthropic API key** (`ANTHROPIC_API_KEY` env var is auto-detected if set)
-- **Kubeconfig path** (defaults to `~/.kube/config` if it exists)
-- **Telemetry** (anonymous error-type aggregates only — see [Telemetry](#telemetry))
+- **Anthropic API key** (`ANTHROPIC_API_KEY` env var is auto-detected and offered as the default)
+- **Kubeconfig path** (`~/.kube/config` is auto-detected and offered as the default)
+- **Telemetry** (default on; anonymous error-type aggregates only — see [Telemetry](#telemetry)). If enabled, you're also asked for a Supabase URL/key (blank leaves telemetry a silent no-op)
 - **History** (off by default; opt in to persist conversations locally)
-- **Production-namespace regex** (default `(?i)^(prod|production|live)`)
 
-Saved to `~/.zanecli/config.json` (mode 0600). Env vars override the file on every launch.
+Saved to `~/.zanecli/config.json` (mode 0600). `ANTHROPIC_API_KEY`, `KUBECONFIG`, and `SUPABASE_URL`/`SUPABASE_KEY` env vars override the file on every launch.
 
 ## Usage
 
@@ -75,13 +78,15 @@ deploy is blocking the new pods from reaching postgres.
 Next step: kubectl get networkpolicy -n prod -l app=checkout-api
 
 > can you restart it?
-[restart_deployment — namespace "prod" matches production pattern]
+[restart_deployment — auto-exec disabled for this session]
 Want me to restart deployment prod/checkout-api? [y/N]
 ```
 
-Built-ins:
+Built-ins (the only ones — there are no CLI flags or other slash commands):
 - `exit` / `quit` — leave the session
-- `/clear` — reset the conversation (drops history, resets quotas)
+- `/clear` — reset the conversation
+- `/good` — label the previous answer as helpful (logged to `rag_events.feedback`)
+- `/bad` — label the previous answer as unhelpful
 
 ## Tools the agent can call
 
@@ -96,43 +101,72 @@ Built-ins:
 | `get_events` | Events in a namespace, optionally filtered |
 | `diagnose_pod` | Full pod diagnostic (auto-detects pending vs crashing) |
 | `diagnose_rollout` | Full rollout diagnostic (worst pod + PDBs + events) |
+| `list_pvcs` | PersistentVolumeClaims in a namespace (phase, StorageClass, size) |
+| `list_storageclasses` | StorageClasses in the cluster (default marked) |
+| `get_resource` | Catch-all reader for any other kind (StatefulSet, DaemonSet, Job, PV, Service, HPA, Node, CRDs) as sanitized YAML; Secret values redacted |
 
 | Write tools | What |
 |---|---|
 | `restart_deployment` | Trigger a `kubectl rollout restart`-equivalent patch |
 | `delete_pod` | Delete a controller-managed pod (gets recreated) |
 
-## Safety: the four-guard auto-exec check
+## Safety: writes always confirm
 
-A write reaches auto-exec only if **all four** pass:
+In this build, **every cluster write prompts for `y/N` confirmation** — auto-exec is disabled. There are no `--auto`/`--no-auto` flags and no `/auto` slash command. Before any write, zanecli shows a `[tool — reason]` status line and a `Want me to ...? [y/N]` prompt; only an explicit `y`/`yes` proceeds.
 
-1. **Whitelist** — the tool is `restart_deployment` or `delete_pod`. Everything else (scale, apply YAML, patch arbitrary resources) always prompts.
-2. **Production pattern** — the namespace does NOT match your configured prod regex (default `(?i)^(prod|production|live)`).
-3. **State precondition** — re-fetched live just before execution. `delete_pod` only auto-execs on CrashLoopBackOff/ImagePullBackOff pods that have an owner. `restart_deployment` only auto-execs when Progressing=False or ready<desired.
-4. **Per-session quota** — at most 3 auto-execs per chat session. After that, every write requires confirmation.
-
-Failure of any guard falls back to a `Want me to ...? [y/N]` prompt.
+A staged three-guard auto-exec design exists in `pkg/safety` (session opt-in → whitelist of `restart_deployment`/`delete_pod` → live state precondition → per-session quota) but is intentionally dormant: the session opt-in is forced off at startup, so `Evaluate` always returns the confirmation path. Enabling it is future work, not a current feature.
 
 ## Telemetry
 
-Optional, opt-out per run via `--no-telemetry` (or off entirely in the wizard). Sends anonymous error-type aggregates to a Supabase backend:
+Configured in the wizard (default on; set to off there, or leave the Supabase URL/key blank, to disable). No per-run flag. When on, three Supabase tables are written:
+
+**`incidents`** — one row per diagnostic / write. Anonymous error-type aggregates only:
 - `incident_type` (`crash` / `pending` / `rollout` / `auto_exec` / `confirmed_write` / `refused_write`)
 - `error_type` and structured `signals` (event reasons, replica counts, etc.)
 - A SHA-256 hash of the cluster API URL (first 8 bytes — distinguishes clusters without storing real URLs)
-- The model used, and the agent's response text
+- The model used, the agent's final response text, and a parsed `confidence` (High / Medium / Low)
 
-**Never persisted:** pod names, namespace names, deployment names, env var values, secret names, or actual cluster URLs.
+**`sessions`** — one row per `zanecli` process. UUID, cluster hash, model, client version.
 
-The grep that should always return zero matches against `pkg/telemetry/logger.go`:
+**`rag_events`** — one row per Step (user input → final answer). The corpus that powers future retrieval / RAG. Carries:
+- The user query and the agent's diagnosis, both **redacted** via `pkg/telemetry/sanitize.go` (pod names → `<POD_N>`, namespaces → `<NS_N>`, images → `<IMAGE_N>`, IPs → `<IP_N>`, URLs → `<URL_N>`, UUIDs → `<UUID_N>`, with stable coreference inside one string).
+- `tool_sequence` — the ordered list of tool names called (names only, never inputs).
+- `step_kind` (`diagnostic` / `chat` / `write` / `mixed`), `round_trip_count`, `error_type`, `confidence`.
+- `feedback` (set by `/good` / `/bad`) and `followup_within_sec` (auto-captured).
+- `redaction_stats` — per-category counts for QC.
+
+**Never persisted (any table):** raw pod names, namespace names, deployment names, env var values, secret names, image strings, or actual cluster URLs.
+
+Two reviewable grep audits — both should return zero matches:
 ```
-data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary|PVCSummary|ReplicaSets|PDBs|DeploymentName|PodName|Namespace|DeploymentSpec)
+# 1. incidents table (structured side-fields only)
+grep -nE 'data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary|PVCSummary|ReplicaSets|PDBs|DeploymentName|PodName|Namespace|DeploymentSpec)' pkg/telemetry/logger.go
+
+# 2. rag_events writers must use the redactedQuery / redactedDiagnosis locals
+grep -nE '(UserQueryRedacted|DiagnosisRedacted):' pkg/agent/agent.go | grep -v 'redacted\(Query\|Diagnosis\)'
 ```
+
+Schema migrations live under `supabase/migrations/`. Apply with the Supabase SQL editor or `psql "$SUPABASE_DB_URL" -f supabase/migrations/<file>.sql`.
 
 ## History (optional)
 
 If you opt in during the wizard, each session is appended to `~/.zanecli/history/<UTC-timestamp>.jsonl` (one message per line, mode 0600). On launch, zanecli offers to resume the most recent session.
 
 History stays on your machine. It contains resource names from your cluster — never uploaded.
+
+## Development
+
+```bash
+go build -o zanecli .
+go vet ./...
+go test ./... -race -count=1
+```
+
+CI (`.github/workflows/ci.yml`) runs the suite on every push and PR, plus two grep-based invariant guards: the [`incidents`-table side-fields-only rule](#telemetry) and the `rag_events` redaction-local-naming audit.
+
+Tests live in `*_test.go` next to the source they cover — `pkg/safety`, `pkg/k8s`, `pkg/telemetry`, `pkg/tools`, `pkg/ai`, `pkg/history`, `pkg/config`, `pkg/agent`. `pkg/k8s.NewClientFromInterface` and `pkg/ai.SetAPIURLForTesting` are the two test-only seams; both are named so a `grep ForTesting` in production code surfaces misuse immediately.
+
+`testdata/` holds manual smoke targets (`crashloop-pod.yaml`, `stuck-rollout.yaml`) for end-to-end runs against a real cluster — apply, then drive the agent against the failing workload.
 
 ## Status
 

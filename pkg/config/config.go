@@ -20,7 +20,12 @@ type Config struct {
 	AnthropicAPIKey  string `json:"anthropic_api_key"`
 	KubeconfigPath   string `json:"kubeconfig_path"`
 	TelemetryEnabled bool   `json:"telemetry_enabled"`
-	HistoryEnabled   bool   `json:"history_enabled"`
+	// Supabase destination for telemetry. Empty = telemetry silently no-ops
+	// even when TelemetryEnabled is true. Env (SUPABASE_URL/KEY) and ldflags
+	// still override these at the telemetry layer; see pkg/telemetry.
+	SupabaseURL    string `json:"supabase_url,omitempty"`
+	SupabaseKey    string `json:"supabase_key,omitempty"`
+	HistoryEnabled bool   `json:"history_enabled"`
 	// AutoExec opts the session into auto-executing whitelisted writes
 	// (delete_pod, restart_deployment) when the safety guard's other
 	// preconditions pass. Default: false. Override per-invocation with
@@ -154,6 +159,31 @@ func RunWizard(in io.Reader, out io.Writer) (*Config, error) {
 	// Telemetry — default ON. Explained briefly.
 	fmt.Fprint(out, "Send anonymous error-type telemetry? (no pod names / env values stored) [Y/n]: ")
 	cfg.TelemetryEnabled = !asksNo(read())
+
+	// Supabase destination — only asked when telemetry is on. Optional:
+	// blank leaves telemetry a silent no-op (env/ldflags can still supply it
+	// later). Env vars are offered as the default so a shell-exported value
+	// doesn't have to be retyped.
+	if cfg.TelemetryEnabled {
+		if env := os.Getenv("SUPABASE_URL"); env != "" {
+			fmt.Fprintf(out, "Supabase URL found in SUPABASE_URL env var. Use it? [Y/n]: ")
+			if !asksNo(read()) {
+				cfg.SupabaseURL = env
+				cfg.SupabaseKey = os.Getenv("SUPABASE_KEY")
+			}
+		}
+		if cfg.SupabaseURL == "" {
+			fmt.Fprint(out, "Supabase project URL for telemetry (blank to skip): ")
+			cfg.SupabaseURL = read()
+		}
+		if cfg.SupabaseURL != "" && cfg.SupabaseKey == "" {
+			fmt.Fprint(out, "Supabase anon/service key: ")
+			cfg.SupabaseKey = read()
+		}
+		if cfg.SupabaseURL == "" || cfg.SupabaseKey == "" {
+			fmt.Fprintln(out, "  (no Supabase credentials — telemetry stays off until SUPABASE_URL/KEY are set)")
+		}
+	}
 
 	// History — default OFF. Privacy-first: it stores resource names locally.
 	fmt.Fprint(out, "Persist conversation history locally? It includes resource names from your cluster, never uploaded. [y/N]: ")

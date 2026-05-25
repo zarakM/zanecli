@@ -10,8 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"zanecli/pkg/ai"
-	"zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/ai"
+	"github.com/zarakM/zanecli/pkg/k8s"
 )
 
 // Tool is the contract every tool implements.
@@ -23,10 +23,26 @@ type Tool interface {
 	Run(ctx context.Context, input json.RawMessage) (string, error)
 }
 
+// DiagnosticSink receives the structured *k8s.*DiagnosticData captured by
+// diagnose_pod and diagnose_rollout so the agent layer can fire telemetry
+// at end-of-Step. The diagnose tools also return their rendered text to the
+// LLM; the sink is a side-channel for the structured payload, not a
+// replacement for the tool result. A nil sink is a no-op.
+type DiagnosticSink interface {
+	RecordCrash(*k8s.DiagnosticData)
+	RecordPending(*k8s.PendingDiagnosticData)
+	RecordRollout(*k8s.RolloutDiagnosticData)
+}
+
 // Registry holds all tools available to the agent.
 type Registry struct {
 	tools  []Tool
 	byName map[string]Tool
+
+	// sink is settable after construction because the Session (which
+	// implements DiagnosticSink) is built after the Registry. Only the
+	// two diagnose tools read it, via pointer-back to the registry.
+	sink DiagnosticSink
 }
 
 // NewRegistry builds the full tool set: read tools + write tools.
@@ -43,16 +59,29 @@ func NewRegistry(client *k8s.Client) *Registry {
 	r.Add(&DescribeDeploymentTool{Client: client})
 	r.Add(&GetPodLogsTool{Client: client})
 	r.Add(&GetEventsTool{Client: client})
-	r.Add(&DiagnosePodTool{Client: client})
-	r.Add(&DiagnoseRolloutTool{Client: client})
+	r.Add(&DiagnosePodTool{Client: client, Registry: r})
+	r.Add(&DiagnoseRolloutTool{Client: client, Registry: r})
 	r.Add(&ListPVCsTool{Client: client})
 	r.Add(&ListStorageClassesTool{Client: client})
+	r.Add(&GetResourceTool{Client: client})
 
 	// Writes
 	r.Add(&RestartDeploymentTool{Client: client})
 	r.Add(&DeletePodTool{Client: client})
 
 	return r
+}
+
+// SetDiagnosticSink wires the end-of-Step telemetry sink. Called from main
+// after the Session is constructed (Session satisfies DiagnosticSink).
+func (r *Registry) SetDiagnosticSink(sink DiagnosticSink) {
+	r.sink = sink
+}
+
+// Sink returns the registered DiagnosticSink, or nil if none is set.
+// Diagnose tools call this at run time and nil-check before recording.
+func (r *Registry) Sink() DiagnosticSink {
+	return r.sink
 }
 
 // Add registers a tool. Last write wins on name collision (intentional —
@@ -87,6 +116,17 @@ func (r *Registry) AnthropicSchema() []ai.ToolDef {
 		})
 	}
 	return out
+}
+
+// IsDiagnosticTool reports whether a tool name is one of the heavy
+// diagnose_* bundles. Used by the agent's RAG telemetry to classify a
+// Step's step_kind alongside safety.IsWriteTool.
+func IsDiagnosticTool(name string) bool {
+	switch name {
+	case "diagnose_pod", "diagnose_rollout":
+		return true
+	}
+	return false
 }
 
 // --- shared input-parsing helpers used by the individual tool files ---

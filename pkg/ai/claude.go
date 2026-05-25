@@ -18,10 +18,17 @@ import (
 	"strings"
 )
 
-const (
-	claudeAPIURL = "https://api.anthropic.com/v1/messages"
-	claudeModel  = "claude-sonnet-4-20250514"
-)
+// claudeAPIURL is a var (not a const) so tests can redirect requests to a
+// local httptest.Server. Reset it via the value returned in tests.
+var claudeAPIURL = "https://api.anthropic.com/v1/messages"
+
+// SetAPIURLForTesting overrides the Anthropic endpoint. Cross-package tests
+// (pkg/agent) use this to drive Step against an httptest stub; production
+// code never calls it. Suffix "ForTesting" makes the intent obvious at the
+// call site and trips reviewer attention if it appears outside *_test.go.
+func SetAPIURLForTesting(url string) { claudeAPIURL = url }
+
+const claudeModel = "claude-sonnet-4-20250514"
 
 // ClaudeClient wraps the API key and a reusable HTTP client.
 // http.Client is safe for concurrent use and should be reused, not created per request.

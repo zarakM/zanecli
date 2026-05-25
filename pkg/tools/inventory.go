@@ -13,7 +13,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/k8s"
 )
 
 // --- list_namespaces ---

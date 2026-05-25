@@ -15,14 +15,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
-	"zanecli/pkg/ai"
-	"zanecli/pkg/config"
-	"zanecli/pkg/k8s"
-	"zanecli/pkg/safety"
-	"zanecli/pkg/telemetry"
-	"zanecli/pkg/tools"
-	"zanecli/pkg/ui"
+	"github.com/google/uuid"
+
+	"github.com/zarakM/zanecli/pkg/ai"
+	"github.com/zarakM/zanecli/pkg/config"
+	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/safety"
+	"github.com/zarakM/zanecli/pkg/telemetry"
+	"github.com/zarakM/zanecli/pkg/tools"
+	"github.com/zarakM/zanecli/pkg/ui"
 )
 
 const (
@@ -56,27 +60,100 @@ type Session struct {
 	// Counters used for safety + cost caps.
 	turnCount     int
 	autoExecCount int
+
+	// pendingDiagnostics is the per-Step buffer of structured diagnostic
+	// payloads captured by diagnose_pod / diagnose_rollout. Drained at the
+	// end_turn exit of Step (one telemetry row per entry, with the agent's
+	// final text as `diagnosis`), discarded at the round-trip-cap exit.
+	pendingDiagnostics []capturedDiagnostic
+
+	// RAG capture state (migration 0002). One sessionID per process; one
+	// rag_events row per Step. lastRagEventID lets /good /bad patch the
+	// most recent row, and lastStepEndedAt drives followup_within_sec.
+	sessionID           string
+	clientVersion       string
+	stepIndex           int
+	currentToolSequence []string
+	currentUserInput    string
+	lastRagEventID      int64
+	lastStepEndedAt     time.Time
+}
+
+// capturedDiagnostic is one structured diagnostic gathered during a Step.
+// Exactly one of the three pointers is non-nil; kind names which.
+type capturedDiagnostic struct {
+	kind    string // "crash" | "pending" | "rollout"
+	crash   *k8s.DiagnosticData
+	pending *k8s.PendingDiagnosticData
+	rollout *k8s.RolloutDiagnosticData
+}
+
+// RecordCrash / RecordPending / RecordRollout make Session satisfy
+// tools.DiagnosticSink. The diagnose tools call these inside their Run;
+// telemetry actually fires when Step drains the buffer at end_turn.
+func (s *Session) RecordCrash(d *k8s.DiagnosticData) {
+	s.pendingDiagnostics = append(s.pendingDiagnostics, capturedDiagnostic{kind: "crash", crash: d})
+}
+
+func (s *Session) RecordPending(d *k8s.PendingDiagnosticData) {
+	s.pendingDiagnostics = append(s.pendingDiagnostics, capturedDiagnostic{kind: "pending", pending: d})
+}
+
+func (s *Session) RecordRollout(d *k8s.RolloutDiagnosticData) {
+	s.pendingDiagnostics = append(s.pendingDiagnostics, capturedDiagnostic{kind: "rollout", rollout: d})
 }
 
 // NewSession wires the dependencies and produces a session ready to Step.
 // confirmer must not be nil when write tools are in the registry; passing
 // nil disables every write (they all fall through to the default-no path).
-func NewSession(cfg *config.Config, client *k8s.Client, registry *tools.Registry, confirmer Confirmer) *Session {
-	return &Session{
-		cfg:       cfg,
-		client:    client,
-		registry:  registry,
-		claude:    ai.NewClaudeClient(cfg.AnthropicAPIKey),
-		guard:     safety.NewGuard(cfg),
-		confirmer: confirmer,
+// clientVersion is the ldflags-injected build tag; it identifies which
+// client version produced a row in the sessions table.
+func NewSession(cfg *config.Config, client *k8s.Client, registry *tools.Registry, confirmer Confirmer, clientVersion string) *Session {
+	s := &Session{
+		cfg:           cfg,
+		client:        client,
+		registry:      registry,
+		claude:        ai.NewClaudeClient(cfg.AnthropicAPIKey),
+		guard:         safety.NewGuard(cfg),
+		confirmer:     confirmer,
+		sessionID:     uuid.NewString(),
+		clientVersion: clientVersion,
 	}
+	// Fire-and-forget upsert of the session row. EnsureSession is a no-op
+	// when telemetry is disabled or creds are unset, so it's always safe.
+	if cfg.TelemetryEnabled {
+		telemetry.EnsureSession(telemetry.Session{
+			ID:            s.sessionID,
+			ClusterID:     telemetry.AnonymizeCluster(client.ServerURL()),
+			Model:         "claude-sonnet-4-20250514",
+			ClientVersion: clientVersion,
+			AutoExecOn:    cfg.AutoExec,
+		})
+	}
+	return s
+}
+
+// MarkFeedback patches the most recently-logged rag_events row with a
+// +1 (good) or -1 (bad) label. No-op when there is no prior row (e.g.
+// /good typed before any Step). Used by main.go's /good /bad REPL commands.
+func (s *Session) MarkFeedback(value int) bool {
+	if s.lastRagEventID == 0 {
+		return false
+	}
+	telemetry.PatchFeedback(s.lastRagEventID, value)
+	return true
 }
 
 // Clear drops the conversation history. Used by the `/clear` REPL builtin.
+// RAG capture state (sessionID, stepIndex, lastRagEventID) is preserved —
+// /clear resets the LLM's context, not the analytics session.
 func (s *Session) Clear() {
 	s.messages = nil
 	s.turnCount = 0
 	s.autoExecCount = 0
+	s.pendingDiagnostics = nil
+	s.currentToolSequence = nil
+	s.currentUserInput = ""
 }
 
 // Messages returns the current conversation history. Used by pkg/history
@@ -102,6 +179,15 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		return nil
 	}
 
+	// RAG capture: reset per-Step state and record the followup gap on the
+	// previous row before it goes stale.
+	s.currentToolSequence = nil
+	s.currentUserInput = userInput
+	if !s.lastStepEndedAt.IsZero() && s.lastRagEventID != 0 {
+		gap := int(time.Since(s.lastStepEndedAt).Seconds())
+		go telemetry.PatchFollowupGap(s.lastRagEventID, gap)
+	}
+
 	// Append the user's message in content-block form.
 	s.messages = append(s.messages, ai.AgentMessage{
 		Role: "user",
@@ -110,7 +196,9 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		},
 	})
 
+	roundCount := 0
 	for round := 0; round < maxStepRoundTrips; round++ {
+		roundCount = round + 1
 		resp, err := s.claude.AgentTurn(ctx, ai.AgentRequest{
 			System:   systemPrompt(),
 			Messages: s.messages,
@@ -138,6 +226,7 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 				}
 			case "tool_use":
 				toolUses = append(toolUses, block)
+				s.currentToolSequence = append(s.currentToolSequence, block.Name)
 			}
 		}
 		if hasAnyText(resp.Content) {
@@ -145,6 +234,9 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		}
 
 		if len(toolUses) == 0 || resp.StopReason == "end_turn" {
+			finalText := concatText(resp.Content)
+			s.drainDiagnostics(finalText)
+			s.logRagEvent(finalText, roundCount)
 			return nil
 		}
 
@@ -162,8 +254,152 @@ func (s *Session) Step(ctx context.Context, userInput string, out io.Writer) err
 		// Loop continues — Claude reacts to the tool results.
 	}
 
-	fmt.Fprintln(out, "(reached the per-turn tool-use limit; reply or /clear to continue)")
+	// Cap-hit exit: the final text is the limiter message, not a real
+	// diagnosis. Discard the diagnostic buffer rather than log misleading
+	// rows to `incidents`, but still log the rag_events row — the user's
+	// query and the tool sequence that triggered a cap-hit are valuable
+	// training signal in their own right.
+	s.pendingDiagnostics = nil
+	const capMsg = "(reached the per-turn tool-use limit; reply or /clear to continue)"
+	fmt.Fprintln(out, capMsg)
+	s.logRagEvent(capMsg, roundCount)
 	return nil
+}
+
+// drainDiagnostics fires one telemetry row per captured diagnostic and
+// clears the buffer. The agent's final text is shared across rows as the
+// `diagnosis` field. Gated on the session's telemetry-enabled flag; the
+// buffer is always cleared so a disabled-telemetry session doesn't
+// accumulate.
+func (s *Session) drainDiagnostics(finalText string) {
+	if len(s.pendingDiagnostics) == 0 {
+		return
+	}
+	defer func() { s.pendingDiagnostics = nil }()
+
+	if !s.cfg.TelemetryEnabled {
+		return
+	}
+
+	serverURL := s.client.ServerURL()
+	for _, d := range s.pendingDiagnostics {
+		switch d.kind {
+		case "crash":
+			telemetry.LogCrashIncident(d.crash, finalText, serverURL)
+		case "pending":
+			telemetry.LogPendingIncident(d.pending, finalText, serverURL)
+		case "rollout":
+			telemetry.LogRolloutIncident(d.rollout, finalText, serverURL)
+		}
+	}
+}
+
+// logRagEvent writes one row to rag_events for the just-completed Step.
+// Fires even when no diagnostic tool ran (non-diagnostic chat is part of
+// the moat too). Free text is redacted via pkg/telemetry/sanitize.go
+// before leaving the process.
+func (s *Session) logRagEvent(finalText string, roundCount int) {
+	// Always advance step state even when telemetry is off so /clear
+	// behaviour and stepIndex stay consistent across sessions.
+	defer func() {
+		s.stepIndex++
+		s.lastStepEndedAt = time.Now()
+	}()
+
+	if !s.cfg.TelemetryEnabled {
+		return
+	}
+
+	// The variable names redactedQuery / redactedDiagnosis are part of the
+	// rag_events sanitization audit (see CLAUDE.md). Do not assign anything
+	// to UserQueryRedacted / DiagnosisRedacted that isn't one of these two
+	// locals — the audit grep is keyed on the name match.
+	redactedQuery, qStats := telemetry.Redact(s.currentUserInput)
+	redactedDiagnosis, dStats := telemetry.Redact(finalText)
+	merged := telemetry.RedactionStats{
+		Pods:       qStats.Pods + dStats.Pods,
+		Namespaces: qStats.Namespaces + dStats.Namespaces,
+		Images:     qStats.Images + dStats.Images,
+		IPs:        qStats.IPs + dStats.IPs,
+		URLs:       qStats.URLs + dStats.URLs,
+		UUIDs:      qStats.UUIDs + dStats.UUIDs,
+	}
+
+	event := telemetry.RagEvent{
+		SessionID:         s.sessionID,
+		StepIndex:         s.stepIndex,
+		ClusterID:         telemetry.AnonymizeCluster(s.client.ServerURL()),
+		UserQueryRedacted: redactedQuery,
+		DiagnosisRedacted: redactedDiagnosis,
+		ToolSequence:      append([]string{}, s.currentToolSequence...),
+		RoundTripCount:    roundCount,
+		StepKind:          classifyStepKind(s.currentToolSequence),
+		Confidence:        extractConfidenceClient(finalText),
+		RedactionStats:    merged,
+	}
+
+	id, err := telemetry.LogRagEvent(event)
+	if err != nil || id == 0 {
+		return
+	}
+	s.lastRagEventID = id
+}
+
+// classifyStepKind derives step_kind from the tool names called this Step.
+// 'mixed' means both a diagnostic and a write happened (rare but possible).
+func classifyStepKind(seq []string) string {
+	hasDiag, hasWrite := false, false
+	for _, name := range seq {
+		if tools.IsDiagnosticTool(name) {
+			hasDiag = true
+		}
+		if safety.IsWriteTool(name) {
+			hasWrite = true
+		}
+	}
+	switch {
+	case hasDiag && hasWrite:
+		return "mixed"
+	case hasDiag:
+		return "diagnostic"
+	case hasWrite:
+		return "write"
+	default:
+		return "chat"
+	}
+}
+
+// extractConfidenceClient mirrors pkg/telemetry/logger.go's extractConfidence
+// so we can populate rag_events.confidence without exporting the helper.
+func extractConfidenceClient(diagnosis string) string {
+	lines := strings.Split(diagnosis, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, "Confidence") || i+1 >= len(lines) {
+			continue
+		}
+		next := strings.TrimSpace(lines[i+1])
+		switch {
+		case strings.HasPrefix(next, "High"):
+			return "High"
+		case strings.HasPrefix(next, "Medium"):
+			return "Medium"
+		case strings.HasPrefix(next, "Low"):
+			return "Low"
+		}
+	}
+	return ""
+}
+
+// concatText joins the text blocks from an assistant response. Tool_use
+// blocks and other non-text content are ignored.
+func concatText(blocks []ai.ContentBlock) string {
+	var out string
+	for _, b := range blocks {
+		if b.Type == "text" {
+			out += b.Text
+		}
+	}
+	return out
 }
 
 // dispatchTool executes a single tool_use block, applying safety checks
@@ -289,12 +525,16 @@ func hasAnyText(blocks []ai.ContentBlock) bool {
 func systemPrompt() string {
 	return `You are zanecli, a Kubernetes operations co-pilot embedded in a terminal chat session.
 
-Your job is to help the user investigate and fix Kubernetes issues. You have read tools (list_pods, list_deployments, list_namespaces, list_pvcs, list_storageclasses, describe_pod, describe_deployment, get_pod_logs, get_events, diagnose_pod, diagnose_rollout) and write tools (restart_deployment, delete_pod). Use them. Do not guess about resources you have not observed.
+Your job is to help the user investigate and fix Kubernetes issues. Your tools are:
+- READ: list_pods, list_deployments, list_namespaces, list_pvcs, list_storageclasses, describe_pod, describe_deployment, get_pod_logs, get_events, diagnose_pod, diagnose_rollout, get_resource.
+- WRITE: restart_deployment, delete_pod.
+get_resource is the catch-all reader for any kind without a dedicated tool (StatefulSet, DaemonSet, ReplicaSet, Job, CronJob, PersistentVolume, Service, Endpoints, Ingress, ConfigMap, Secret, HPA, Node, CRDs) — it returns the object as YAML. Use the tools you have; do not guess about resources you have not observed.
 
 Operating rules:
 - Investigate before answering. If the user names a resource, fetch its state with the most relevant tool before drawing conclusions.
 - Prefer the heavier diagnose_pod / diagnose_rollout tools when the user is asking why something is broken — they bundle spec, events, and logs in one call.
 - Use list_* tools when the user's question is vague or names an unfamiliar resource. Do not invent resource names that did not appear in a tool result.
+- get_events is namespace- or cluster-scoped, not pod-only — use it to inspect any kind (StatefulSet, Job, PVC, Node, …) since the controller and scheduler emit events there.
 - Identifying unhealthy pods. When the user asks for unhealthy / problem / failing / not-running pods (in a namespace or cluster-wide), call list_pods and treat a pod as unhealthy if any of these hold:
     • phase is anything other than Running or Succeeded (e.g. Pending, Failed, Unknown; CrashLoopBackOff and ImagePullBackOff also surface here via container waiting reasons in describe_pod), or
     • age < 1h and restarts > 6, or
@@ -315,6 +555,22 @@ Pending pods — scheduler causes:
 - If the breakdown is mixed (e.g. "0/X nodes … X didn't match node selector, X Insufficient cpu, X Insufficient memory"): the labeled nodes are full. Ask whether to relax the nodeSelector so the pod can run on other nodes, or add capacity to the labeled ones. Don't relax the selector without confirmation.
 - Always quote the exact scheduler message in one bullet of evidence.
 
+Resources without a dedicated tool (StatefulSet, DaemonSet, ReplicaSet, Job, CronJob, PersistentVolume, Service, Endpoints, Ingress, ConfigMap, Secret, HPA, Node):
+- Observe the underlying pods (list_pods, describe_pod, diagnose_pod, get_pod_logs) and the controller's events (get_events) first — most workload failures surface on a pod or as an event.
+- For the controller object's own state (replica/ready counts, conditions, the spec field that matters), call get_resource with the kind (and name; omit name to list the kind). Read it like any tool result: quote concrete values, do not fabricate numbers, do not echo it back wholesale. get_resource is read-only — it never substitutes for a write tool.
+- get_resource redacts Secret values; if a Secret key is the suspect, reason from which keys exist and whether they are referenced, not from values.
+
+Edge cases by kind (likely cause first — commit to it):
+- Deployment / ReplicaSet: rollout stuck → diagnose_rollout. Watch for failing readiness/liveness probe (quote the probe path and result), bad image tag (ImagePullBackOff on new pods while old ones still serve), resource quota / LimitRange rejection (event "exceeded quota"), or maxUnavailable=0 with no schedulable capacity.
+- StatefulSet: ordered rollout blocks on pod ordinal N, so a later pod never starts if an earlier one is unhealthy — diagnose the lowest-ordinal not-Ready pod first. Common causes: per-replica PVC stuck Pending (treat with the storage playbook below), podManagementPolicy=OrderedReady stalling on a crashing ordinal, or a headless Service missing so DNS/peer discovery fails.
+- DaemonSet: "desired N, ready M, M<N" usually means the missing nodes are tainted without a matching toleration, or the node lacks a required label/resource. Check get_events for FailedScheduling and describe_pod for tolerations vs. node taints.
+- Job / CronJob: a Job stuck with no completion is usually backoffLimit exhausted (pods in Error/CrashLoopBackOff — read get_pod_logs of the last failed pod) or activeDeadlineSeconds exceeded. A CronJob not firing is usually suspend=true, a bad schedule, or startingDeadlineSeconds missed; for "too many missed starts" the cause is concurrencyPolicy plus a slow job.
+- PersistentVolume / PVC: PVC Pending → unbound (no PV matches access mode / size / StorageClass), missing or non-default StorageClass, or WaitForFirstConsumer with no schedulable consumer pod. PV Released but not reclaimed → reclaimPolicy=Retain needs manual cleanup. PVC Terminating stuck → a pod still mounts it (kubernetes.io/pvc-protection finalizer). Use list_pvcs and list_storageclasses; follow the pending-pod storage playbook for the manifest hand-off.
+- Service / Endpoints / Ingress: "connection refused / no endpoints" → the Service selector matches no Ready pods (compare Service spec.selector to pod labels and pod readiness), wrong targetPort, or readiness probe keeping pods out of Endpoints. Ingress 404/502 → backend Service has no endpoints, or ingressClassName/path mismatch. Confirm via get_resource (kind=service, then kind=endpoints) and compare the selector to pod labels.
+- ConfigMap / Secret: a pod CrashLoopBackOff or stuck ContainerCreating right after a config change usually means a referenced key/name is missing (event "couldn't find key …" or "secret … not found") or a mount path collision. describe_pod shows the volume/env refs; confirm the object exists and which keys it has via get_resource (Secret values come back redacted — reason from key presence, not values).
+- HPA: "unable to compute replica count" / no scaling → metrics-server absent or the target's resource requests unset (HPA needs requests to compute utilization). Quote the HPA condition from get_resource (kind=hpa).
+- Node: pods Pending cluster-wide or a node NotReady → taints (NoSchedule/NoExecute), pressure conditions (MemoryPressure/DiskPressure/PIDPressure), or kubelet down. Cross-reference FailedScheduling events from get_events with get_resource (kind=node, name=<node>; cluster-scoped, no namespace).
+
 Write tools:
 - For MVP, prefer suggesting a one-liner kubectl command over invoking restart_deployment / delete_pod. The user runs it themselves so they stay in control. Only invoke a write tool if the user explicitly asks ("yes go ahead", "do it"); a y/N confirmation prompt will still appear before it runs.
 - Before invoking any write, briefly explain what you plan to do and why.
@@ -329,8 +585,12 @@ Output format for substantive answers:
 - One-sentence direct answer first.
 - 2–3 short bullets of evidence drawn from tool results — quote concrete values (probe path, image tag, replica counts, exit code, event reason).
 - If the question implies action, end with a "Next step:" line containing one concrete kubectl one-liner command or the name of the tool you intend to run.
+- Finish with a confidence line — exactly two lines, no extra prose:
+    ## Confidence
+    High|Medium|Low — <one-sentence reason>
+  Pick High when the evidence directly identifies the cause (e.g. CrashLoopBackOff with a clear exit code in logs), Medium when the evidence is consistent with one cause but other causes aren't ruled out, Low when you're guessing or the tools didn't return enough signal.
 
-For chit-chat or trivial questions, drop the format and just answer briefly.
+For chit-chat or trivial questions, drop the format and just answer briefly (no confidence line needed).
 
 Tone: plain English. No hedging ("it could be many things"). Pick the most likely cause and commit. No preamble, no closing pleasantries.`
 }

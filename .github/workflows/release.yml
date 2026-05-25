@@ -1,0 +1,43 @@
+name: Release
+
+# Fires when a semver tag (v1.2.3 or v1.2.3-rc.1) is pushed. Builds binaries
+# for Mac/Linux/Windows on amd64+arm64 via GoReleaser and attaches them to
+# a GitHub Release. Tag the commit and push:
+#
+#     git tag v0.1.0 && git push --tags
+#
+# Pre-releases (v1.2.3-rc.1, etc.) are marked as pre-release automatically
+# by the `prerelease: auto` setting in .goreleaser.yaml.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # required so goreleaser can create the GitHub Release
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # goreleaser needs the full history for the changelog
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional. Leave the secrets unset to ship a telemetry-no-op
+          # binary; users can supply SUPABASE_URL/KEY at runtime via env.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

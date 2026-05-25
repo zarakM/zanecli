@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/k8s"
 )
 
 // --- restart_deployment ---

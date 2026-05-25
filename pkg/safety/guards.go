@@ -24,8 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"zanecli/pkg/config"
-	"zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/config"
+	"github.com/zarakM/zanecli/pkg/k8s"
 )
 
 // MaxAutoExecsPerSession caps how many auto-executes the agent can perform

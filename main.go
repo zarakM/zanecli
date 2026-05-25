@@ -15,13 +15,19 @@ import (
 	"strings"
 	"syscall"
 
-	"zanecli/pkg/agent"
-	"zanecli/pkg/config"
-	"zanecli/pkg/history"
-	"zanecli/pkg/k8s"
-	"zanecli/pkg/tools"
-	"zanecli/pkg/ui"
+	"github.com/zarakM/zanecli/pkg/agent"
+	"github.com/zarakM/zanecli/pkg/config"
+	"github.com/zarakM/zanecli/pkg/history"
+	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zanecli/pkg/telemetry"
+	"github.com/zarakM/zanecli/pkg/tools"
+	"github.com/zarakM/zanecli/pkg/ui"
 )
+
+// ClientVersion is injected at build time via -ldflags
+// (e.g. -X main.ClientVersion=$(git rev-parse --short HEAD)). It identifies
+// which client cut produced a row in the sessions table.
+var ClientVersion = "dev"
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -49,6 +55,10 @@ func main() {
 	// off here so a saved `auto_exec: true` cannot bypass confirmation.
 	cfg.AutoExec = false
 
+	// Hand the config-file Supabase credentials to the telemetry layer.
+	// Env vars / ldflags still take precedence inside pkg/telemetry.
+	telemetry.SetSupabaseConfig(cfg.SupabaseURL, cfg.SupabaseKey)
+
 	client, err := k8s.NewClient(cfg.KubeconfigPath)
 	if err != nil {
 		fatalf("could not connect to cluster: %v\n\nIs your kubeconfig at %s valid? Try: kubectl --kubeconfig %s get pods", err, cfg.KubeconfigPath, cfg.KubeconfigPath)
@@ -60,7 +70,11 @@ func main() {
 	confirmer := &stdinConfirmer{scanner: scanner}
 
 	registry := tools.NewRegistry(client)
-	sess := agent.NewSession(cfg, client, registry, confirmer)
+	sess := agent.NewSession(cfg, client, registry, confirmer, ClientVersion)
+	// Session implements tools.DiagnosticSink — wire it so diagnose_pod
+	// and diagnose_rollout can hand back their structured payloads for
+	// end-of-Step Supabase logging.
+	registry.SetDiagnosticSink(sess)
 
 	// History is opt-in. Open the writer only if the user enabled it.
 	var writer *history.Writer
@@ -84,7 +98,7 @@ func main() {
 		offerResume(sess, scanner)
 	}
 
-	fmt.Println("Type your question, or 'exit' to quit. Use /clear to reset the conversation.")
+	fmt.Println("Type your question, or 'exit' to quit. /clear resets the chat; /good and /bad label the last answer.")
 	fmt.Println()
 
 	// Track the persisted prefix so we only append new messages after each Step.
@@ -105,6 +119,20 @@ func main() {
 			sess.Clear()
 			persistedPrefix = 0
 			fmt.Println("(conversation cleared)")
+			continue
+		case "/good":
+			if sess.MarkFeedback(+1) {
+				fmt.Println("(thanks — logged as 👍)")
+			} else {
+				fmt.Println("(no prior answer to label yet)")
+			}
+			continue
+		case "/bad":
+			if sess.MarkFeedback(-1) {
+				fmt.Println("(thanks — logged as 👎; we'll use it to improve)")
+			} else {
+				fmt.Println("(no prior answer to label yet)")
+			}
 			continue
 		}
 

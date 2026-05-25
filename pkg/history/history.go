@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"zanecli/pkg/ai"
+	"github.com/zarakM/zanecli/pkg/ai"
 )
 
 // HistoryDir returns the directory where session JSONLs live.
@@ -32,9 +32,9 @@ func HistoryDir() (string, error) {
 
 // Session is one persisted chat session.
 type Session struct {
-	Path      string             // absolute path to the JSONL file
-	StartedAt time.Time          // parsed from filename
-	Messages  []ai.AgentMessage  // ordered, oldest-first
+	Path      string            // absolute path to the JSONL file
+	StartedAt time.Time         // parsed from filename
+	Messages  []ai.AgentMessage // ordered, oldest-first
 }
 
 // Writer appends messages to a session file as they arrive. Open one per

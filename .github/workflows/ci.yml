@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build / vet / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          fmt_out=$(gofmt -l .)
+          if [ -n "$fmt_out" ]; then
+            echo "gofmt found unformatted files:"
+            echo "$fmt_out"
+            exit 1
+          fi
+
+      - name: go test
+        run: go test ./... -race -count=1 -timeout=120s
+
+  invariants:
+    name: telemetry sanitization invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Invariant 1: incidents path may only read structured side-fields off
+      # the k8s diagnostic structs, never the formatted-string fields that
+      # carry cluster identifiers. See CLAUDE.md > "Telemetry sanitization
+      # invariant (do not break)".
+      - name: no raw identifier fields in pkg/telemetry/logger.go
+        run: |
+          set -e
+          match=$(grep -nE 'data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary|PVCSummary|ReplicaSets|PDBs|DeploymentName|PodName|Namespace|DeploymentSpec)' pkg/telemetry/logger.go || true)
+          if [ -n "$match" ]; then
+            echo "Forbidden raw-identifier read in pkg/telemetry/logger.go:"
+            echo "$match"
+            exit 1
+          fi
+
+      # Invariant 2: every assignment to UserQueryRedacted / DiagnosisRedacted
+      # in pkg/agent/agent.go must come from the canonically-named locals
+      # `redactedQuery` / `redactedDiagnosis` populated immediately above
+      # via telemetry.Redact(...). Any other source is a sanitization bypass.
+      - name: rag_events redaction audit on pkg/agent/agent.go
+        run: |
+          set -e
+          match=$(grep -nE '(UserQueryRedacted|DiagnosisRedacted):' pkg/agent/agent.go | grep -v 'redacted\(Query\|Diagnosis\)' || true)
+          if [ -n "$match" ]; then
+            echo "Possible redaction bypass in pkg/agent/agent.go:"
+            echo "$match"
+            echo "All assignments must use the redactedQuery / redactedDiagnosis locals."
+            exit 1
+          fi

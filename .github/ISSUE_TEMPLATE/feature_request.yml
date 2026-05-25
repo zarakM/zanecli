@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest a new tool, a UX improvement, or an investigation pattern zanecli should support.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        zanecli is deliberately scoped (chat REPL, Anthropic tool use, read-heavy, two write tools). Before opening a feature request, please skim `CLAUDE.md`'s "Do not" section — some shapes of feature are explicitly out of scope (web server, multi-tenancy, LLM frameworks, etc.) and they'll get closed quickly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem you're trying to solve
+      description: What goes wrong today, or what does zanecli refuse to investigate well? Concrete example > abstract description.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would zanecli do differently? If you're proposing a new tool, name it and sketch the input schema.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: kubectl one-liners, other tools, a different scope for the same idea.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of change is this?
+      multiple: false
+      options:
+        - New investigation/diagnostic tool
+        - New write tool (note that writes are confirm-gated by design)
+        - UX / REPL behavior
+        - System prompt / agent behavior
+        - Telemetry / RAG capture
+        - Docs / install / release
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+    validations:
+      required: false
