@@ -47,6 +47,22 @@ git tag v0.1.0 && git push origin v0.1.0
 
 ldflag injection at release time is GoReleaser's responsibility — `.goreleaser.yaml` reads `{{.Version}}` for `main.ClientVersion`, plus `SUPABASE_URL` / `SUPABASE_KEY` from repo secrets (silently empty if unset). **`go install github.com/zarakM/zanecli@v0.1.0` does NOT apply these ldflags** — it builds from source, so `ClientVersion` stays `dev` and any Supabase creds you'd baked in via secrets are absent. Production users should download the release archive; `go install` is the developer / contributor path.
 
+## Repo skills (`.claude/skills/`)
+
+Two project-scoped Claude Code skills encode repeatable workflows so they run the
+same way every time instead of being re-derived per session:
+
+- **`zanecli-review`** — reviews a diff/PR/the whole codebase against the project
+  invariants (telemetry sanitization, RAG redaction, fail-closed safety, tool
+  conventions). Each rule is tagged `[auto]` (verified by the bundled
+  `scripts/review-checks.sh`) or `[judgment]`. Run it before opening or merging
+  anything that touches `pkg/telemetry`, `pkg/agent`, `pkg/safety`, or `pkg/tools`.
+- **`open-pr`** — the PR-creation ritual: run the pre-PR gates (tests, `gofmt`,
+  `go vet`, `go mod tidy`, the two invariant greps), branch off `main`, commit
+  with the `Co-Authored-By` trailer, push (the `.githooks` pre-push guard runs),
+  and open the PR with the house `## What` body format. It composes with
+  `zanecli-review` rather than duplicating its checks.
+
 ## Architecture
 
 Request flow: `main.go` REPL loop → `agent.Session.Step` (multi-turn Anthropic tool-use loop) → `tools.Registry` dispatch → `pkg/k8s` → results fed back to the model until it stops calling tools and emits final text.

@@ -32,6 +32,10 @@ The `pre-push` hook blocks a push if the outgoing commits add binaries, files ov
 
 For substantive changes, please open an issue first so we can align on the approach before you spend time on it.
 
+If you work with Claude Code, two project skills automate the loop above: the
+`open-pr` skill runs these gates and opens the PR for you, and `zanecli-review`
+reviews a diff against the invariants below (see `.claude/skills/`).
+
 ## Project rules (do not break)
 
 These come straight from `CLAUDE.md` and are enforced in CI.
