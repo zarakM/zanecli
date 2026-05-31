@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# pre-push hook for zanecli.
+#
+# Blocks a push when the commits being pushed add/modify any of:
+#   - secret/credential files (.env, *.pem, *.key, kubeconfig, id_rsa, ...)
+#   - secret VALUES in file content (private keys, sk-ant-*, AWS keys, JWTs, ...)
+#   - binary files or files larger than 1 MiB
+#   - zanecli build artifacts / local files (the zanecli binary, zanecli.yaml,
+#     *.exe, history .jsonl, anything under .zanecli/)
+#
+# Install (once per clone — each teammate runs it too):
+#   bash .githooks/install.sh
+#   or directly:  git config core.hooksPath .githooks
+#
+# Bypass — only when you have reviewed and accept the risk:
+#   git push --no-verify          # skips ALL git hooks
+#   ALLOW_RISKY_PUSH=1 git push   # skips only this check
+
+set -uo pipefail
+
+z40="0000000000000000000000000000000000000000"
+EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git's well-known empty tree
+MAX_BYTES=$((1024 * 1024))                              # 1 MiB
+
+if [ "${ALLOW_RISKY_PUSH:-}" = "1" ]; then
+  echo "pre-push: ALLOW_RISKY_PUSH=1 set — skipping content checks." >&2
+  exit 0
+fi
+
+problems=0
+report() {  # report <file> <reason>
+  printf '  \033[31m✗\033[0m %s\n      %s\n' "$1" "$2" >&2
+  problems=$((problems + 1))
+}
+
+# Secret value shapes — deliberately matches VALUES, not env-var names, so the
+# many legitimate references to ANTHROPIC_API_KEY / SUPABASE_KEY in this repo's
+# code and docs do not trip it. A real pasted credential still gets caught.
+SECRET_RE='(-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-ant-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}|(secret|token|password|passwd|api[_-]?key)["'"'"' ]*[:=][ ]*["'"'"'][A-Za-z0-9_/+.-]{16,}["'"'"'])'
+
+is_secret_file() {
+  case "$1" in
+    *.example|*.sample|*.template|*.dist|*.pub) return 1 ;;  # templates/public keys are fine
+  esac
+  case "$1" in
+    .env|.env.*|*/.env|*/.env.*)                                          return 0 ;;
+    *.pem|*.key|*.p12|*.pfx|*.keystore|*.jks)                             return 0 ;;
+    id_rsa|id_dsa|id_ecdsa|id_ed25519|*/id_rsa|*/id_dsa|*/id_ecdsa|*/id_ed25519) return 0 ;;
+    kubeconfig|*/kubeconfig|*.kubeconfig)                                 return 0 ;;
+    credentials.json|*/credentials.json|*service?account*.json)          return 0 ;;
+  esac
+  return 1
+}
+
+is_zanecli_artifact() {
+  # NOTE: zanecli.yaml is the Krew plugin manifest (a release artifact that IS
+  # meant to be tracked), so it is deliberately NOT matched here. The runtime
+  # local config lives at ~/.zanecli/config.json, outside the repo.
+  case "$1" in
+    zanecli|*/zanecli|zanecli-linux|zanecli-darwin*|zanecli-windows*)     return 0 ;;
+    *.exe)                                                               return 0 ;;
+    *.jsonl|*/.zanecli/*)                                                return 0 ;;
+  esac
+  return 1
+}
+
+# git marks a file binary in --numstat with "-\t-"; $binaries is that file list.
+is_binary() { printf '%s\n' "$binaries" | grep -qxF "$1"; }
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$z40" ] && continue   # deleting a remote ref — nothing to scan
+
+  if [ "$remote_sha" = "$z40" ]; then
+    # New branch on the remote: scan commits not already on any remote ref.
+    oldest=$(git rev-list "$local_sha" --not --remotes 2>/dev/null | tail -1)
+    if [ -n "$oldest" ]; then
+      base=$(git rev-parse "$oldest^" 2>/dev/null || echo "$EMPTY_TREE")
+    else
+      base="$EMPTY_TREE"
+    fi
+  else
+    base="$remote_sha"
+  fi
+  tip="$local_sha"
+
+  files=$(git diff --name-only --diff-filter=ACMR "$base" "$tip" 2>/dev/null)
+  [ -z "$files" ] && continue
+  binaries=$(git diff --numstat "$base" "$tip" 2>/dev/null | awk -F'\t' '$1=="-" && $2=="-" {print $3}')
+
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    if is_secret_file "$f"; then
+      report "$f" "looks like a secret/credential file"
+      continue
+    fi
+    if is_zanecli_artifact "$f"; then
+      report "$f" "zanecli build artifact or local file — should not be committed"
+      continue
+    fi
+    sz=$(git cat-file -s "$tip:$f" 2>/dev/null || echo 0)
+    if [ "${sz:-0}" -gt "$MAX_BYTES" ]; then
+      report "$f" "large file: ${sz} bytes (> ${MAX_BYTES})"
+      continue
+    fi
+    if is_binary "$f"; then
+      report "$f" "binary content detected"
+      continue
+    fi
+    # Text file: scan only the ADDED lines in this range for secret values.
+    if git diff "$base" "$tip" -- "$f" 2>/dev/null \
+         | grep -E '^\+' | grep -vE '^\+\+\+' \
+         | grep -qE "$SECRET_RE"; then
+      report "$f" "possible hardcoded secret in added lines"
+    fi
+  done <<EOF
+$files
+EOF
+done
+
+if [ "$problems" -gt 0 ]; then
+  {
+    echo ""
+    echo "pre-push BLOCKED: ${problems} issue(s) above."
+    echo "Remove the file(s) from history / add to .gitignore, or bypass once with:"
+    echo "    git push --no-verify           # skips ALL git hooks"
+    echo "    ALLOW_RISKY_PUSH=1 git push    # skips only this check"
+  } >&2
+  exit 1
+fi
+
+exit 0
