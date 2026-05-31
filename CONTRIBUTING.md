@@ -13,6 +13,16 @@ go test ./... -race
 
 Requires Go 1.22+. There's no Makefile and no linter config — `go build`, `go vet`, and `go test` are the full local check. CI runs the same plus two grep-based invariant guards (see [Telemetry invariants](#telemetry-invariants) below).
 
+### Install the git hooks (one-time)
+
+After cloning, point git at the tracked hooks directory so the pre-push guard runs on every push:
+
+```bash
+bash .githooks/install.sh        # sets core.hooksPath -> .githooks
+```
+
+The `pre-push` hook blocks a push if the outgoing commits add binaries, files over 1 MiB, secret/credential files (`.env`, `*.pem`, `kubeconfig`, …), hardcoded secret values, or zanecli build artifacts. Bypass once, at your own risk, with `git push --no-verify`.
+
 ## Before you open a PR
 
 - **Tests pass:** `go test ./... -race -count=1`
@@ -21,6 +31,10 @@ Requires Go 1.22+. There's no Makefile and no linter config — `go build`, `go 
 - **One focused change per PR.** Refactors and feature work in separate PRs make review easy.
 
 For substantive changes, please open an issue first so we can align on the approach before you spend time on it.
+
+If you work with Claude Code, two project skills automate the loop above: the
+`open-pr` skill runs these gates and opens the PR for you, and `zanecli-review`
+reviews a diff against the invariants below (see `.claude/skills/`).
 
 ## Project rules (do not break)
 

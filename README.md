@@ -206,6 +206,8 @@ Tests live in `*_test.go` next to the source they cover — `pkg/safety`, `pkg/k
 
 `testdata/` holds manual smoke targets (`crashloop-pod.yaml`, `stuck-rollout.yaml`) for end-to-end runs against a real cluster — apply, then drive the agent against the failing workload.
 
+If you use Claude Code, `.claude/skills/` ships two project skills: `zanecli-review` (review a diff against the project invariants) and `open-pr` (run the pre-PR gates, then branch, commit, push, and open the PR the house way). See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Status
 
 Pre-launch. Six implementation phases shipped (rename, wizard, agent loop, write actions, history, polish). Feedback welcome — open an issue or DM.
