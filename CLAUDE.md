@@ -45,6 +45,8 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 `.github/workflows/release.yml` triggers on any `v*` tag and invokes GoReleaser per `.goreleaser.yaml`. GoReleaser cross-compiles for Linux/macOS/Windows (amd64 + arm64; Windows-arm64 skipped), bundles each binary with `LICENSE` and `README.md`, generates `checksums.txt`, and attaches everything to a GitHub Release. Pre-release tags (`v0.1.0-rc.1`) are marked as pre-release automatically.
 
+The `brews:` block also generates `Formula/zanecli.rb` and pushes it to the `github.com/zarakM/homebrew-tap` repo (install: `brew install zarakM/tap/zanecli`). This depends on two pieces of GitHub-side setup that are NOT in the repo: the `homebrew-tap` repo must exist, and a `HOMEBREW_TAP_GITHUB_TOKEN` secret (PAT with write access to the tap) must be set — the default `GITHUB_TOKEN` can't push to another repo. `skip_upload: auto` means pre-release tags do not update the tap; only final tags publish a formula.
+
 ldflag injection at release time is GoReleaser's responsibility — `.goreleaser.yaml` reads `{{.Version}}` for `main.ClientVersion`, plus `SUPABASE_URL` / `SUPABASE_KEY` from repo secrets (silently empty if unset). **`go install github.com/zarakM/zanecli@v0.1.0` does NOT apply these ldflags** — it builds from source, so `ClientVersion` stays `dev` and any Supabase creds you'd baked in via secrets are absent. Production users should download the release archive; `go install` is the developer / contributor path.
 
 ## Repo skills (`.claude/skills/`)
@@ -125,6 +127,16 @@ grep -nE '(UserQueryRedacted|DiagnosisRedacted):' pkg/agent/agent.go | grep -v '
 Expected: zero matches. If anything matches, a bypass has been introduced — investigate before merging.
 
 Tool inputs are NEVER logged. Only tool *names* go into `rag_events.tool_sequence`. If you add a new tool, no new sanitization work is needed — names are already safe by construction; inputs stay out of telemetry.
+
+### Supabase RLS: the baked anon key is least-privilege
+
+The `SUPABASE_KEY` ldflag bakes the **anon** key into every released binary, so treat it as public — the database, not the key, is the security boundary. The `anon` role is locked down by `supabase/migrations/0003_rls_lockdown.sql`:
+
+- `incidents` — INSERT only, gated by a validation policy (`incident_type` enum, length caps, `cluster_id` length = 16). No SELECT/UPDATE/DELETE.
+- `sessions` — INSERT only.
+- `rag_events` — INSERT; SELECT on **only the `id` column** (needed for the `return=representation` id round-trip in `LogRagEvent`, which posts `?select=id` precisely so a single-column grant suffices); UPDATE on **only** `feedback` / `followup_within_sec` (the feedback-patch path). The redacted corpus columns are unreadable with the anon key. No DELETE.
+
+To keep the `incidents` insert from being rejected when the agent's final text is long, `postIncident` truncates `diagnosis`→8000 and `error_type`→100 (the policy's bounds) instead of letting the row drop; the full redacted text still lands in `rag_events`. If you add a telemetry write or a new column an anon client must touch, add the matching grant + policy — RLS denies by default, so a missing policy fails closed (the write 403s and is silently swallowed, which is how the RAG path was dormant before this lockdown).
 
 ## Code style
 - Errors wrapped with `%w`, returned up to `main.go` for printing.

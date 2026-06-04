@@ -215,6 +215,13 @@ func postIncident(log IncidentLog, url, key string) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	// The `incidents` RLS validation policy rejects the whole row if diagnosis
+	// or error_type exceed these bounds. Truncate (don't drop) so a verbose
+	// diagnosis still yields aggregate metrics — the full, redacted text lives
+	// uncapped in rag_events.diagnosis_redacted, which is the RAG corpus.
+	log.Diagnosis = truncateRunes(log.Diagnosis, 8000)
+	log.ErrorType = truncateRunes(log.ErrorType, 100)
+
 	body, err := json.Marshal(log)
 	if err != nil {
 		return
@@ -235,6 +242,17 @@ func postIncident(log IncidentLog, url, key string) {
 		return
 	}
 	resp.Body.Close()
+}
+
+// truncateRunes caps s at max characters (not bytes — Postgres length() counts
+// characters, which is what the incidents RLS policy checks). When it trims, the
+// last kept character is replaced with an ellipsis so the result stays <= max.
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max-1]) + "…"
 }
 
 // AnonymizeCluster hashes the cluster API server URL.
@@ -473,8 +491,13 @@ func LogRagEvent(e RagEvent) (int64, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	// ?select=id narrows the returned representation to just the id column. This
+	// is what lets RLS grant anon SELECT on *only* `id` (see migration
+	// 0003_rls_lockdown): the redacted corpus stays unreadable while the
+	// return=representation id round-trip still works. Returning the default
+	// `*` would require SELECT on every column and 403 under least-privilege.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		url+"/rest/v1/rag_events", bytes.NewReader(body))
+		url+"/rest/v1/rag_events?select=id", bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}

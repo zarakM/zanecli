@@ -50,6 +50,37 @@ archives:
       - LICENSE
       - README.md
 
+# Homebrew tap. GoReleaser renders a Formula/zanecli.rb from the archives above
+# and pushes it to github.com/zarakM/homebrew-tap, so users can:
+#   brew install zarakM/tap/zanecli
+# The push targets a DIFFERENT repo than this one, so the default GITHUB_TOKEN
+# is not enough — a PAT with `repo` scope on the tap is supplied via the
+# HOMEBREW_TAP_GITHUB_TOKEN secret (wired in .github/workflows/release.yml).
+# No `test` stanza: zanecli has no flags and a bare launch opens the stdin
+# wizard, which would hang `brew test`.
+brews:
+  - name: zanecli
+    repository:
+      owner: zarakM
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/zarakM/zanecli"
+    description: "Conversational Kubernetes co-pilot in your terminal"
+    license: "MIT"
+    commit_author:
+      name: goreleaser-bot
+      email: goreleaser-bot@users.noreply.github.com
+    # Don't publish a formula for pre-release tags (v0.1.0-rc.1, etc.).
+    skip_upload: auto
+    install: |
+      bin.install "zanecli"
+    caveats: |
+      zanecli needs an Anthropic API key (ANTHROPIC_API_KEY env var or the
+      first-run wizard) and a kubeconfig (KUBECONFIG or ~/.kube/config).
+      Start the co-pilot by running: zanecli
+
 checksum:
   name_template: "checksums.txt"
 

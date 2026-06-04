@@ -206,6 +206,11 @@ func TestLogRagEventWireShapeAndIDRoundtrip(t *testing.T) {
 	if r.Method != http.MethodPost || r.Path != "/rest/v1/rag_events" {
 		t.Errorf("got %s %s, want POST /rest/v1/rag_events", r.Method, r.Path)
 	}
+	// select=id narrows the returned representation to just the id column so RLS
+	// can grant anon SELECT on only `id` — the redacted corpus stays unreadable.
+	if r.Query != "select=id" {
+		t.Errorf("query = %q, want select=id", r.Query)
+	}
 	// return=representation is what lets us read back the bigserial id;
 	// flipping it to return=minimal would silently break the followup-patch path.
 	mustContain(t, r.Header, "Prefer", "return=representation")
@@ -416,5 +421,28 @@ func TestExtractConfidence(t *testing.T) {
 				t.Errorf("extractConfidence(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+// truncateRunes must keep results within the incidents RLS length bounds so a
+// verbose diagnosis is trimmed, never dropped. Counts characters, not bytes.
+func TestTruncateRunes(t *testing.T) {
+	if got := truncateRunes("hello", 8000); got != "hello" {
+		t.Errorf("short string changed: %q", got)
+	}
+	if got := truncateRunes(strings.Repeat("x", 8000), 8000); got != strings.Repeat("x", 8000) {
+		t.Errorf("exact-length string should be untouched")
+	}
+	// Over the cap: result is exactly max runes, ending in the ellipsis.
+	got := truncateRunes(strings.Repeat("x", 9000), 8000)
+	if n := len([]rune(got)); n != 8000 {
+		t.Errorf("rune length = %d, want 8000", n)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("truncated string should end with ellipsis, got %q", got[len(got)-4:])
+	}
+	// Multi-byte runes count as one character each (matches Postgres length()).
+	if got := truncateRunes(strings.Repeat("é", 200), 100); len([]rune(got)) != 100 {
+		t.Errorf("multibyte rune length = %d, want 100", len([]rune(got)))
 	}
 }

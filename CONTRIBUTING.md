@@ -80,14 +80,23 @@ If the code is obvious, no comment. If there's a constraint, invariant, or surpr
 
 ## How to run a release
 
-Tag the commit and push the tag — `.github/workflows/release.yml` runs GoReleaser, builds binaries for Linux/macOS/Windows (amd64 + arm64), and attaches them to a GitHub Release.
+Tag the commit and push the tag — `.github/workflows/release.yml` runs GoReleaser, builds binaries for Linux/macOS/Windows (amd64 + arm64), attaches them to a GitHub Release, and updates the Homebrew tap.
 
 ```bash
 git tag v0.1.0
 git push --tags
 ```
 
-Pre-release tags (`v0.1.0-rc.1`, etc.) are marked as pre-release automatically.
+Pre-release tags (`v0.1.0-rc.1`, etc.) are marked as pre-release automatically and, because of `skip_upload: auto`, do **not** update the Homebrew tap — only final tags publish a formula.
+
+### Homebrew tap prerequisites (one-time)
+
+The `brews:` block in `.goreleaser.yaml` pushes a generated `Formula/zanecli.rb` to a separate repo so users can `brew install zarakM/tap/zanecli`. Two pieces of setup must exist before the first release that publishes a formula:
+
+1. **Tap repo** `github.com/zarakM/homebrew-tap` (public; the `homebrew-` prefix is what makes the short `zarakM/tap/zanecli` name resolve).
+2. **`HOMEBREW_TAP_GITHUB_TOKEN` secret** in this repo's Actions secrets — a PAT with write access to the tap (classic: `repo` scope; fine-grained: Contents read/write on `homebrew-tap`). The default `GITHUB_TOKEN` can't push to another repo, so this is required.
+
+If the secret is missing the release still builds binaries, but the brew step fails. Remove the `brews:` block if you want to drop the tap entirely.
 
 ## Reporting bugs / asking for features
 

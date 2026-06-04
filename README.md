@@ -15,7 +15,16 @@ zanecli is a chat session that:
 
 ## Install
 
-### Pre-built binary (recommended)
+### Homebrew (macOS / Linux, recommended)
+
+```bash
+brew install zarakM/tap/zanecli
+zanecli  # first launch triggers the wizard
+```
+
+This taps `github.com/zarakM/homebrew-tap` and installs the release binary, so the version is baked in (`main.ClientVersion` matches the tag). Upgrade with `brew upgrade zanecli`. The formula is regenerated automatically on every `v*` release by GoReleaser.
+
+### Pre-built binary
 
 Download the archive for your OS/arch from the [latest release](https://github.com/zarakM/zanecli/releases/latest), extract it, and move `zanecli` onto your `PATH`:
 
