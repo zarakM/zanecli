@@ -76,7 +76,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if [ -n "$oldest" ]; then
       base=$(git rev-parse "$oldest^" 2>/dev/null || echo "$EMPTY_TREE")
     else
-      base="$EMPTY_TREE"
+      # Every commit reachable from this ref is already on a remote, so there is
+      # nothing new to scan. This is the common case for pushing a tag that
+      # points at an already-pushed commit (e.g. a release tag on main).
+      # Without this, base fell back to the empty tree and re-scanned the entire
+      # repo, flagging long-committed fixtures (see pkg/k8s/generic_test.go).
+      continue
     fi
   else
     base="$remote_sha"
