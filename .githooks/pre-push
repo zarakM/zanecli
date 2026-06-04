@@ -5,8 +5,8 @@
 #   - secret/credential files (.env, *.pem, *.key, kubeconfig, id_rsa, ...)
 #   - secret VALUES in file content (private keys, sk-ant-*, AWS keys, JWTs, ...)
 #   - binary files or files larger than 1 MiB
-#   - zanecli build artifacts / local files (the zanecli binary, zanecli.yaml,
-#     *.exe, history .jsonl, anything under .zanecli/)
+#   - zanecli build artifacts / local files (the zanecli binary, *.exe,
+#     history .jsonl, anything under .zanecli/)
 #
 # Install (once per clone — each teammate runs it too):
 #   bash .githooks/install.sh
@@ -53,7 +53,7 @@ is_secret_file() {
 }
 
 is_zanecli_artifact() {
-  # NOTE: zanecli.yaml is the Krew plugin manifest (a release artifact that IS
+  # NOTE: zane.yaml is the Krew plugin manifest (a release artifact that IS
   # meant to be tracked), so it is deliberately NOT matched here. The runtime
   # local config lives at ~/.zanecli/config.json, outside the repo.
   case "$1" in

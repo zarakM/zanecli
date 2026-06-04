@@ -1,13 +1,13 @@
 apiVersion: krew.googlecontainertools.github.com/v1alpha2
 kind: Plugin
 metadata:
-  name: zanecli
+  name: zane
 spec:
   version: v0.1.1
   homepage: https://github.com/zarakM/zanecli
   shortDescription: Conversational Kubernetes co-pilot in your terminal
   description: |
-    zanecli is a conversational Kubernetes co-pilot. Launch it to open a chat
+    zane is a conversational Kubernetes co-pilot. Launch it to open a chat
     REPL, ask a question in plain English, and the agent investigates your
     cluster (pods, deployments, events, logs, PVCs, and arbitrary resources)
     through read-only API calls, cites the evidence it found, and proposes
@@ -24,7 +24,7 @@ spec:
 
     Start the co-pilot with:
 
-      kubectl zanecli
+      kubectl zane
   platforms:
     - selector:
         matchLabels:
