@@ -2,7 +2,7 @@
 
 > Talk to your cluster. Investigate, explain, fix.
 
-`zane` is a terminal chat for Kubernetes, installed as the `zane` command. Run `zane`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, but every cluster mutation asks for a `y/N` confirmation first.
+`zane` is a terminal chat for Kubernetes. Run `zane`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, but every cluster mutation asks for a `y/N` confirmation first.
 
 ## Why this exists
 
@@ -26,7 +26,7 @@ This taps `github.com/zarakM/homebrew-tap` and installs the release binary, so t
 
 ### Krew (kubectl plugin)
 
-If you use [Krew](https://krew.sigs.k8s.io/), zane is also packaged as a `kubectl` plugin named `zane`:
+If you use [Krew](https://krew.sigs.k8s.io/), zane is also available as a `kubectl` plugin:
 
 ```bash
 kubectl krew install zane
@@ -46,7 +46,7 @@ Download the archive for your OS/arch from the [latest release](https://github.c
 ```bash
 # macOS arm64 (Apple Silicon). Adjust the version and asset name for your platform.
 curl -L -o zane.tar.gz \
-  https://github.com/zarakM/zane/releases/download/v0.1.2/zane_0.1.2_Darwin_arm64.tar.gz
+  https://github.com/zarakM/zane/releases/download/v0.1.3/zane_0.1.3_Darwin_arm64.tar.gz
 tar -xzf zane.tar.gz
 sudo mv zane /usr/local/bin/zane
 zane  # first launch triggers the wizard
@@ -62,7 +62,7 @@ Pre-built binaries embed the release tag in `main.ClientVersion` (visible in tel
 go install github.com/zarakM/zane@latest
 ```
 
-The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`. Note that `go install` builds from source, so the release-tag ldflag is **not** applied — `ClientVersion` will be `dev`. It also names the binary `zane` after the module path (rename it to `zane` if you want the same command as the release builds); brew/krew/release archives all install it as `zane`.
+The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset), named `zane`. Make sure that directory is on your `PATH`. Note that `go install` builds from source, so the release-tag ldflag is **not** applied — `ClientVersion` will be `dev`.
 
 ### Build from source
 
