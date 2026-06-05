@@ -46,7 +46,7 @@ Download the archive for your OS/arch from the [latest release](https://github.c
 ```bash
 # macOS arm64 (Apple Silicon). Adjust the version and asset name for your platform.
 curl -L -o zane.tar.gz \
-  https://github.com/zarakM/zane/releases/download/v0.1.3/zane_0.1.3_Darwin_arm64.tar.gz
+  https://github.com/zarakM/zane/releases/download/v0.1.4/zane_0.1.4_Darwin_arm64.tar.gz
 tar -xzf zane.tar.gz
 sudo mv zane /usr/local/bin/zane
 zane  # first launch triggers the wizard
