@@ -24,14 +24,29 @@ zanecli  # first launch triggers the wizard
 
 This taps `github.com/zarakM/homebrew-tap` and installs the release binary, so the version is baked in (`main.ClientVersion` matches the tag). Upgrade with `brew upgrade zanecli`. The formula is regenerated automatically on every `v*` release by GoReleaser.
 
+### Krew (kubectl plugin)
+
+If you use [Krew](https://krew.sigs.k8s.io/), zanecli is also packaged as a `kubectl` plugin named `zane`:
+
+```bash
+kubectl krew install zane
+kubectl zane   # launches the co-pilot
+```
+
+Until the plugin is accepted into the central krew-index, install straight from the manifest in this repo:
+
+```bash
+kubectl krew install --manifest=zane.yaml
+```
+
 ### Pre-built binary
 
 Download the archive for your OS/arch from the [latest release](https://github.com/zarakM/zanecli/releases/latest), extract it, and move `zanecli` onto your `PATH`:
 
 ```bash
-# macOS arm64 (Apple Silicon). Adjust the asset name for your platform.
+# macOS arm64 (Apple Silicon). Adjust the version and asset name for your platform.
 curl -L -o zanecli.tar.gz \
-  https://github.com/zarakM/zanecli/releases/latest/download/zanecli_0.1.0_Darwin_arm64.tar.gz
+  https://github.com/zarakM/zanecli/releases/download/v0.1.1/zanecli_0.1.1_Darwin_arm64.tar.gz
 tar -xzf zanecli.tar.gz
 sudo mv zanecli /usr/local/bin/zanecli
 zanecli  # first launch triggers the wizard
