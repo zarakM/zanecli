@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# pre-push hook for zanecli.
+# pre-push hook for zane.
 #
 # Blocks a push when the commits being pushed add/modify any of:
 #   - secret/credential files (.env, *.pem, *.key, kubeconfig, id_rsa, ...)
 #   - secret VALUES in file content (private keys, sk-ant-*, AWS keys, JWTs, ...)
 #   - binary files or files larger than 1 MiB
-#   - zanecli build artifacts / local files (the zanecli binary, *.exe,
-#     history .jsonl, anything under .zanecli/)
+#   - zane build artifacts / local files (the zane binary, *.exe,
+#     history .jsonl, anything under .zane/)
 #
 # Install (once per clone — each teammate runs it too):
 #   bash .githooks/install.sh
@@ -52,15 +52,14 @@ is_secret_file() {
   return 1
 }
 
-is_zanecli_artifact() {
+is_zane_artifact() {
   # NOTE: zane.yaml is the Krew plugin manifest (a release artifact that IS
   # meant to be tracked), so it is deliberately NOT matched here. The runtime
-  # local config lives at ~/.zanecli/config.json, outside the repo.
+  # local config lives at ~/.zane/config.json, outside the repo.
   case "$1" in
-    zane|*/zane|zane-linux|zane-darwin*|zane-windows*)                    return 0 ;;
-    zanecli|*/zanecli|zanecli-linux|zanecli-darwin*|zanecli-windows*)     return 0 ;;
-    *.exe)                                                               return 0 ;;
-    *.jsonl|*/.zanecli/*)                                                return 0 ;;
+    zane|*/zane|zane-linux|zane-darwin*|zane-windows*)                   return 0 ;;
+    *.exe)                                                              return 0 ;;
+    *.jsonl|*/.zane/*)                                                  return 0 ;;
   esac
   return 1
 }
@@ -99,8 +98,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       report "$f" "looks like a secret/credential file"
       continue
     fi
-    if is_zanecli_artifact "$f"; then
-      report "$f" "zanecli build artifact or local file — should not be committed"
+    if is_zane_artifact "$f"; then
+      report "$f" "zane build artifact or local file — should not be committed"
       continue
     fi
     sz=$(git cat-file -s "$tip:$f" 2>/dev/null || echo 0)

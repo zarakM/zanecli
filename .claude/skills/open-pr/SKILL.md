@@ -1,11 +1,11 @@
 ---
 name: open-pr
-description: Open a pull request for zanecli the repeatable way — run the pre-PR checks (tests, gofmt, go mod tidy, the two invariant grep guards), branch/commit/push correctly, then create the PR with the house body format. Use whenever a task is finished and the user wants to ship it as a PR.
+description: Open a pull request for zane the repeatable way — run the pre-PR checks (tests, gofmt, go mod tidy, the two invariant grep guards), branch/commit/push correctly, then create the PR with the house body format. Use whenever a task is finished and the user wants to ship it as a PR.
 ---
 
 # open-pr
 
-The PR-creation ritual for the `zanecli` repo, captured so it runs the same way
+The PR-creation ritual for the `zane` repo, captured so it runs the same way
 every time. It is deterministic on purpose: the steps below come straight from
 `CONTRIBUTING.md` ("Before you open a PR"), `CLAUDE.md` (the CI invariants), and
 the repo's git conventions. Follow them in order; do not skip the gates.
@@ -36,7 +36,7 @@ grep -nE 'data\.(Events|PodSpec|WorstPodSpec|PodSummary|NodeSummary|QuotaSummary
 grep -nE '(UserQueryRedacted|DiagnosisRedacted):' pkg/agent/agent.go | grep -v 'redacted\(Query\|Diagnosis\)'
 ```
 
-Both must return **zero matches**. (The `zanecli-review` skill's
+Both must return **zero matches**. (The `zane-review` skill's
 `scripts/review-checks.sh` runs these plus more — prefer it if the diff touched
 `pkg/telemetry`, `pkg/agent`, `pkg/safety`, or `pkg/tools`.)
 

@@ -25,9 +25,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/zarakM/zanecli/pkg/config"
-	"github.com/zarakM/zanecli/pkg/k8s"
-	"github.com/zarakM/zanecli/pkg/tools"
+	"github.com/zarakM/zane/pkg/config"
+	"github.com/zarakM/zane/pkg/k8s"
+	"github.com/zarakM/zane/pkg/tools"
 )
 
 // evalCase is one trajectory eval: a scenario, a question, and what we

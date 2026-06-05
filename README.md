@@ -1,14 +1,14 @@
-# zanecli — Conversational Kubernetes Co-Pilot
+# zane — Conversational Kubernetes Co-Pilot
 
 > Talk to your cluster. Investigate, explain, fix.
 
-`zanecli` is a terminal chat for Kubernetes, installed as the `zane` command. Run `zane`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, but every cluster mutation asks for a `y/N` confirmation first.
+`zane` is a terminal chat for Kubernetes, installed as the `zane` command. Run `zane`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, but every cluster mutation asks for a `y/N` confirmation first.
 
 ## Why this exists
 
 Kubectl is great at *fetching state*. Dashboards are great at *showing state*. Neither is great at *explaining state* — and neither can take action on your behalf.
 
-zanecli is a chat session that:
+zane is a chat session that:
 - **Investigates before answering.** Asks "why is checkout-api broken?" → fetches pod list → diagnoses the worst replica → cites the failing readiness probe and the relevant log lines.
 - **Acts when you approve.** "Yes please restart it" → shows you the exact write, asks `y/N`, and only then issues the `kubectl rollout restart`-equivalent patch.
 - **Stays out of your way otherwise.** Conversational answers, no formal incident reports unless you want one.
@@ -26,7 +26,7 @@ This taps `github.com/zarakM/homebrew-tap` and installs the release binary, so t
 
 ### Krew (kubectl plugin)
 
-If you use [Krew](https://krew.sigs.k8s.io/), zanecli is also packaged as a `kubectl` plugin named `zane`:
+If you use [Krew](https://krew.sigs.k8s.io/), zane is also packaged as a `kubectl` plugin named `zane`:
 
 ```bash
 kubectl krew install zane
@@ -41,12 +41,12 @@ kubectl krew install --manifest=zane.yaml
 
 ### Pre-built binary
 
-Download the archive for your OS/arch from the [latest release](https://github.com/zarakM/zanecli/releases/latest), extract it, and move `zane` onto your `PATH`:
+Download the archive for your OS/arch from the [latest release](https://github.com/zarakM/zane/releases/latest), extract it, and move `zane` onto your `PATH`:
 
 ```bash
 # macOS arm64 (Apple Silicon). Adjust the version and asset name for your platform.
 curl -L -o zane.tar.gz \
-  https://github.com/zarakM/zanecli/releases/download/v0.1.2/zane_0.1.2_Darwin_arm64.tar.gz
+  https://github.com/zarakM/zane/releases/download/v0.1.2/zane_0.1.2_Darwin_arm64.tar.gz
 tar -xzf zane.tar.gz
 sudo mv zane /usr/local/bin/zane
 zane  # first launch triggers the wizard
@@ -59,16 +59,16 @@ Pre-built binaries embed the release tag in `main.ClientVersion` (visible in tel
 ### `go install` (Go 1.22+)
 
 ```bash
-go install github.com/zarakM/zanecli@latest
+go install github.com/zarakM/zane@latest
 ```
 
-The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`. Note that `go install` builds from source, so the release-tag ldflag is **not** applied — `ClientVersion` will be `dev`. It also names the binary `zanecli` after the module path (rename it to `zane` if you want the same command as the release builds); brew/krew/release archives all install it as `zane`.
+The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`. Note that `go install` builds from source, so the release-tag ldflag is **not** applied — `ClientVersion` will be `dev`. It also names the binary `zane` after the module path (rename it to `zane` if you want the same command as the release builds); brew/krew/release archives all install it as `zane`.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/zarakM/zanecli
-cd zanecli
+git clone https://github.com/zarakM/zane
+cd zane
 go build -o zane .
 cp zane /usr/local/bin/zane
 ```
@@ -91,7 +91,7 @@ A wizard prompts you for:
 - **Telemetry** (default on; anonymous error-type aggregates only — see [Telemetry](#telemetry)). If enabled, you're also asked for a Supabase URL/key (blank leaves telemetry a silent no-op)
 - **History** (off by default; opt in to persist conversations locally)
 
-Saved to `~/.zanecli/config.json` (mode 0600). `ANTHROPIC_API_KEY`, `KUBECONFIG`, and `SUPABASE_URL`/`SUPABASE_KEY` env vars override the file on every launch.
+Saved to `~/.zane/config.json` (mode 0600). `ANTHROPIC_API_KEY`, `KUBECONFIG`, and `SUPABASE_URL`/`SUPABASE_KEY` env vars override the file on every launch.
 
 ## Usage
 
@@ -167,7 +167,7 @@ Configured in the wizard (default on; set to off there, or leave the Supabase UR
 - A SHA-256 hash of the cluster API URL (first 8 bytes — distinguishes clusters without storing real URLs)
 - The model used, the agent's final response text, and a parsed `confidence` (High / Medium / Low)
 
-**`sessions`** — one row per `zanecli` process. UUID, cluster hash, model, client version.
+**`sessions`** — one row per `zane` process. UUID, cluster hash, model, client version.
 
 **`rag_events`** — one row per Step (user input → final answer). The corpus that powers future retrieval / RAG. Carries:
 - The user query and the agent's diagnosis, both **redacted** via `pkg/telemetry/sanitize.go` (pod names → `<POD_N>`, namespaces → `<NS_N>`, images → `<IMAGE_N>`, IPs → `<IP_N>`, URLs → `<URL_N>`, UUIDs → `<UUID_N>`, with stable coreference inside one string).
@@ -191,7 +191,7 @@ Schema migrations live under `supabase/migrations/`. Apply with the Supabase SQL
 
 ## History (optional)
 
-If you opt in during the wizard, each session is appended to `~/.zanecli/history/<UTC-timestamp>.jsonl` (one message per line, mode 0600). On launch, zane offers to resume the most recent session.
+If you opt in during the wizard, each session is appended to `~/.zane/history/<UTC-timestamp>.jsonl` (one message per line, mode 0600). On launch, zane offers to resume the most recent session.
 
 History stays on your machine. It contains resource names from your cluster — never uploaded.
 
@@ -210,7 +210,7 @@ Fixes, easiest first:
 
 ### `kubeconfig: ... no such file or directory`
 
-Either set `KUBECONFIG` to a real path, or edit `~/.zanecli/config.json` and update `kubeconfig_path`. Env vars override the file on every launch.
+Either set `KUBECONFIG` to a real path, or edit `~/.zane/config.json` and update `kubeconfig_path`. Env vars override the file on every launch.
 
 ### Writes prompt every time, even for safe-looking restarts
 
@@ -230,7 +230,7 @@ Tests live in `*_test.go` next to the source they cover — `pkg/safety`, `pkg/k
 
 `testdata/` holds manual smoke targets (`crashloop-pod.yaml`, `stuck-rollout.yaml`) for end-to-end runs against a real cluster — apply, then drive the agent against the failing workload.
 
-If you use Claude Code, `.claude/skills/` ships two project skills: `zanecli-review` (review a diff against the project invariants) and `open-pr` (run the pre-PR gates, then branch, commit, push, and open the PR the house way). See [CONTRIBUTING.md](CONTRIBUTING.md).
+If you use Claude Code, `.claude/skills/` ships two project skills: `zane-review` (review a diff against the project invariants) and `open-pr` (run the pre-PR gates, then branch, commit, push, and open the PR the house way). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 

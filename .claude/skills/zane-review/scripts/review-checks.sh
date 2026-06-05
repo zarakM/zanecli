@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# review-checks.sh — mechanical invariant checks for the zanecli code-review skill.
+# review-checks.sh — mechanical invariant checks for the zane code-review skill.
 #
-# Run from the zanecli repo root:
-#     bash .claude/skills/zanecli-review/scripts/review-checks.sh
+# Run from the zane repo root:
+#     bash .claude/skills/zane-review/scripts/review-checks.sh
 #
 # Each check prints PASS or FAIL (with offending lines). The script runs ALL
 # checks even when one fails, then exits non-zero if any failed. The grep guards
@@ -30,7 +30,7 @@ zero_match() {
 }
 
 if [[ ! -f go.mod ]] || [[ ! -d pkg/telemetry ]]; then
-  echo "ERROR: run this from the zanecli repo root (go.mod + pkg/telemetry not found)." >&2
+  echo "ERROR: run this from the zane repo root (go.mod + pkg/telemetry not found)." >&2
   exit 2
 fi
 

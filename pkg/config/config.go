@@ -1,6 +1,6 @@
 package config
 
-// First-run wizard + persisted user config under ~/.zanecli/config.json.
+// First-run wizard + persisted user config under ~/.zane/config.json.
 // Env vars (ANTHROPIC_API_KEY, KUBECONFIG, SUPABASE_URL/KEY) take precedence
 // over the saved file on Load — same precedence story we used in kubectl-ai.
 
@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// Config is everything zanecli persists between launches.
+// Config is everything zane persists between launches.
 // File mode is 0600 — it contains an API key.
 type Config struct {
 	AnthropicAPIKey  string `json:"anthropic_api_key"`
@@ -39,7 +39,7 @@ func Paths() (dir, file string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("could not resolve home dir: %w", err)
 	}
-	dir = filepath.Join(home, ".zanecli")
+	dir = filepath.Join(home, ".zane")
 	file = filepath.Join(dir, "config.json")
 	return dir, file, nil
 }
@@ -80,7 +80,7 @@ func (c *Config) applyEnvOverrides() {
 	}
 }
 
-// Save writes the config to ~/.zanecli/config.json with 0600 perms.
+// Save writes the config to ~/.zane/config.json with 0600 perms.
 func (c *Config) Save() error {
 	dir, file, err := Paths()
 	if err != nil {
@@ -112,7 +112,7 @@ func RunWizard(in io.Reader, out io.Writer) (*Config, error) {
 		return strings.TrimSpace(scanner.Text())
 	}
 
-	fmt.Fprintln(out, "First-run setup. We need a few details — written to ~/.zanecli/config.json.")
+	fmt.Fprintln(out, "First-run setup. We need a few details — written to ~/.zane/config.json.")
 	fmt.Fprintln(out)
 
 	cfg := &Config{}

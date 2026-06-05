@@ -1,18 +1,18 @@
 name: Bug report
-description: Something zanecli did wrong, crashed on, or refused to do that it should have done.
+description: Something zane did wrong, crashed on, or refused to do that it should have done.
 title: "[bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for opening a bug. The three things that make zanecli bugs easy to fix are: the **user prompt** that triggered it, the **tool calls** the agent made (visible as `[tool_name...]` lines in the chat), and the **cluster shape** (the kind of resource it was investigating). Please include all three when relevant.
+        Thanks for opening a bug. The three things that make zane bugs easy to fix are: the **user prompt** that triggered it, the **tool calls** the agent made (visible as `[tool_name...]` lines in the chat), and the **cluster shape** (the kind of resource it was investigating). Please include all three when relevant.
 
   - type: input
     id: version
     attributes:
-      label: zanecli version
-      description: The release tag you installed (e.g. v0.1.0) or the git SHA you built from. zanecli prints its version at startup; you can also check it via the `ClientVersion` field in any telemetry row.
+      label: zane version
+      description: The release tag you installed (e.g. v0.1.0) or the git SHA you built from. zane prints its version at startup; you can also check it via the `ClientVersion` field in any telemetry row.
       placeholder: v0.1.0
     validations:
       required: true
@@ -49,7 +49,7 @@ body:
     id: prompt
     attributes:
       label: The user prompt that triggered the bug
-      description: Paste the exact question you asked zanecli.
+      description: Paste the exact question you asked zane.
       render: text
     validations:
       required: true
@@ -58,7 +58,7 @@ body:
     id: tool-calls
     attributes:
       label: Tool calls the agent made (the `[tool_name...]` lines)
-      description: Copy the bracketed status lines that zanecli printed during the failing turn.
+      description: Copy the bracketed status lines that zane printed during the failing turn.
       render: text
     validations:
       required: false
@@ -74,7 +74,7 @@ body:
     id: actual
     attributes:
       label: What actually happened
-      description: Include any error message zanecli printed and the agent's final answer if there was one. Redact pod / namespace / image names if sensitive.
+      description: Include any error message zane printed and the agent's final answer if there was one. Redact pod / namespace / image names if sensitive.
     validations:
       required: true
 

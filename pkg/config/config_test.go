@@ -102,7 +102,7 @@ func TestLoad_MalformedFileReturnsError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	dir := filepath.Join(home, ".zanecli")
+	dir := filepath.Join(home, ".zane")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

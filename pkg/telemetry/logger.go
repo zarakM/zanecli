@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zane/pkg/k8s"
 )
 
 // IncidentLog is the row written to the `incidents` table.
@@ -95,7 +95,7 @@ var (
 	supabaseKey = "" // set via -ldflags at build time
 )
 
-// cfgSupabaseURL/Key are injected from ~/.zanecli/config.json at startup via
+// cfgSupabaseURL/Key are injected from ~/.zane/config.json at startup via
 // SetSupabaseConfig. They sit between env (highest) and ldflags (lowest) so a
 // normal `go build` can ship telemetry without -ldflags, while env vars stay a
 // dev/CI override and ldflags remain the production-bake path.
@@ -417,7 +417,7 @@ func truncate(s string, maxBytes int) string {
 // pkg/telemetry/sanitize.go and at the call sites in pkg/agent/agent.go.
 // ---------------------------------------------------------------------------
 
-// Session is the row written once per zanecli process to the `sessions` table.
+// Session is the row written once per zane process to the `sessions` table.
 type Session struct {
 	ID            string `json:"id"`         // uuid (random per process)
 	ClusterID     string `json:"cluster_id"` // already-hashed (AnonymizeCluster)

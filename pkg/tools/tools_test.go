@@ -17,7 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zane/pkg/k8s"
 )
 
 func fakeK8s(objs ...runtime.Object) *k8s.Client {
@@ -189,8 +189,8 @@ func TestRestartDeploymentTool_PatchesAnnotation(t *testing.T) {
 
 	// Read the deployment back and verify the annotation appeared.
 	updated, _ := client.Clientset().AppsV1().Deployments("default").Get(context.Background(), "api", metav1.GetOptions{})
-	if _, ok := updated.Spec.Template.Annotations["zanecli.dev/restartedAt"]; !ok {
-		t.Errorf("expected zanecli.dev/restartedAt annotation, got %v", updated.Spec.Template.Annotations)
+	if _, ok := updated.Spec.Template.Annotations["zane.dev/restartedAt"]; !ok {
+		t.Errorf("expected zane.dev/restartedAt annotation, got %v", updated.Spec.Template.Annotations)
 	}
 }
 

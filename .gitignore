@@ -15,11 +15,6 @@ zane-linux
 zane-darwin
 zane-windows
 zane.exe
-zanecli
-zanecli-linux
-zanecli-darwin
-zanecli-windows
-zanecli.exe
 
 # Go test cache and build artifacts
 *.test

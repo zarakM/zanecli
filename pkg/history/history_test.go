@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zarakM/zanecli/pkg/ai"
+	"github.com/zarakM/zane/pkg/ai"
 )
 
 // withTempHome sets HOME so HistoryDir() resolves under a t.TempDir.
-// History writes to ~/.zanecli/history/...; isolating $HOME keeps the
+// History writes to ~/.zane/history/...; isolating $HOME keeps the
 // real home untouched and the test parallel-safe.
 func withTempHome(t *testing.T) string {
 	t.Helper()
@@ -38,7 +38,7 @@ func TestOpenWriter_FileModeIs0600(t *testing.T) {
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("file mode = %o, want 0600", fi.Mode().Perm())
 	}
-	if !strings.HasPrefix(w.Path(), filepath.Join(home, ".zanecli", "history")) {
+	if !strings.HasPrefix(w.Path(), filepath.Join(home, ".zane", "history")) {
 		t.Errorf("file path not under home: %s", w.Path())
 	}
 }
@@ -95,7 +95,7 @@ func TestLoadLatest_NoHistoryReturnsNil(t *testing.T) {
 // history.go (line 143) names this behavior explicitly.
 func TestLoadFile_SkipsCorruptLines(t *testing.T) {
 	home := withTempHome(t)
-	dir := filepath.Join(home, ".zanecli", "history")
+	dir := filepath.Join(home, ".zane", "history")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestLoadFile_SkipsCorruptLines(t *testing.T) {
 // Multiple session files exist; LoadLatest must pick the newest by filename.
 func TestLoadLatest_PicksNewestByName(t *testing.T) {
 	home := withTempHome(t)
-	dir := filepath.Join(home, ".zanecli", "history")
+	dir := filepath.Join(home, ".zane", "history")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

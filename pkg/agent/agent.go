@@ -20,13 +20,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/zarakM/zanecli/pkg/ai"
-	"github.com/zarakM/zanecli/pkg/config"
-	"github.com/zarakM/zanecli/pkg/k8s"
-	"github.com/zarakM/zanecli/pkg/safety"
-	"github.com/zarakM/zanecli/pkg/telemetry"
-	"github.com/zarakM/zanecli/pkg/tools"
-	"github.com/zarakM/zanecli/pkg/ui"
+	"github.com/zarakM/zane/pkg/ai"
+	"github.com/zarakM/zane/pkg/config"
+	"github.com/zarakM/zane/pkg/k8s"
+	"github.com/zarakM/zane/pkg/safety"
+	"github.com/zarakM/zane/pkg/telemetry"
+	"github.com/zarakM/zane/pkg/tools"
+	"github.com/zarakM/zane/pkg/ui"
 )
 
 const (

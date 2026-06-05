@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`zanecli` — a conversational Kubernetes co-pilot. The user runs `zanecli` and gets a chat REPL: ask a question in plain English, the agent investigates the cluster via Anthropic tool use, cites evidence, and proposes fixes. A tightly-scoped set of writes (`restart_deployment`, `delete_pod`) can be executed, but every write is confirmation-gated in the current build (see "Auto-exec reality" below).
+`zane` — a conversational Kubernetes co-pilot. The user runs `zane` and gets a chat REPL: ask a question in plain English, the agent investigates the cluster via Anthropic tool use, cites evidence, and proposes fixes. A tightly-scoped set of writes (`restart_deployment`, `delete_pod`) can be executed, but every write is confirmation-gated in the current build (see "Auto-exec reality" below).
 
 All six original implementation phases (rename, wizard, agent loop, write actions, history, polish) are shipped and in `pkg/`. This is no longer a one-shot CLI — the old `kubectl-ai` `cmd/` + Cobra layer is gone; there are no subcommands.
 
@@ -31,11 +31,11 @@ Production build with telemetry baked in (manual; the release flow below does th
 ```bash
 GOOS=linux GOARCH=amd64 go build -ldflags "\
   -X main.ClientVersion=v0.1.0 \
-  -X github.com/zarakM/zanecli/pkg/telemetry.supabaseURL=https://yourproject.supabase.co \
-  -X github.com/zarakM/zanecli/pkg/telemetry.supabaseKey=your-anon-key" \
+  -X github.com/zarakM/zane/pkg/telemetry.supabaseURL=https://yourproject.supabase.co \
+  -X github.com/zarakM/zane/pkg/telemetry.supabaseKey=your-anon-key" \
   -o zane-linux .
 ```
-Credential precedence (highest → lowest): `SUPABASE_URL`/`SUPABASE_KEY` env vars > `~/.zanecli/config.json` (passed in via `telemetry.SetSupabaseConfig`) > ldflags-baked defaults. Same env-wins precedence for `ANTHROPIC_API_KEY` / `KUBECONFIG` over the config file.
+Credential precedence (highest → lowest): `SUPABASE_URL`/`SUPABASE_KEY` env vars > `~/.zane/config.json` (passed in via `telemetry.SetSupabaseConfig`) > ldflags-baked defaults. Same env-wins precedence for `ANTHROPIC_API_KEY` / `KUBECONFIG` over the config file.
 
 ### Releases
 
@@ -45,16 +45,16 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 `.github/workflows/release.yml` triggers on any `v*` tag and invokes GoReleaser per `.goreleaser.yaml`. GoReleaser cross-compiles for Linux/macOS/Windows (amd64 + arm64; Windows-arm64 skipped), bundles each binary with `LICENSE` and `README.md`, generates `checksums.txt`, and attaches everything to a GitHub Release. Pre-release tags (`v0.1.0-rc.1`) are marked as pre-release automatically.
 
-The `brews:` block also generates `Formula/zane.rb` and pushes it to the `github.com/zarakM/homebrew-tap` repo (install: `brew install zarakM/tap/zane`). The binary/command is `zane`; the Go module/repo stays `github.com/zarakM/zanecli`. This depends on two pieces of GitHub-side setup that are NOT in the repo: the `homebrew-tap` repo must exist, and a `HOMEBREW_TAP_GITHUB_TOKEN` secret (PAT with write access to the tap) must be set — the default `GITHUB_TOKEN` can't push to another repo. `skip_upload: auto` means pre-release tags do not update the tap; only final tags publish a formula.
+The `brews:` block also generates `Formula/zane.rb` and pushes it to the `github.com/zarakM/homebrew-tap` repo (install: `brew install zarakM/tap/zane`). The binary/command is `zane`; the Go module/repo stays `github.com/zarakM/zane`. This depends on two pieces of GitHub-side setup that are NOT in the repo: the `homebrew-tap` repo must exist, and a `HOMEBREW_TAP_GITHUB_TOKEN` secret (PAT with write access to the tap) must be set — the default `GITHUB_TOKEN` can't push to another repo. `skip_upload: auto` means pre-release tags do not update the tap; only final tags publish a formula.
 
-ldflag injection at release time is GoReleaser's responsibility — `.goreleaser.yaml` reads `{{.Version}}` for `main.ClientVersion`, plus `SUPABASE_URL` / `SUPABASE_KEY` from repo secrets (silently empty if unset). **`go install github.com/zarakM/zanecli@v0.1.0` does NOT apply these ldflags** — it builds from source, so `ClientVersion` stays `dev` and any Supabase creds you'd baked in via secrets are absent. Production users should download the release archive; `go install` is the developer / contributor path.
+ldflag injection at release time is GoReleaser's responsibility — `.goreleaser.yaml` reads `{{.Version}}` for `main.ClientVersion`, plus `SUPABASE_URL` / `SUPABASE_KEY` from repo secrets (silently empty if unset). **`go install github.com/zarakM/zane@v0.1.0` does NOT apply these ldflags** — it builds from source, so `ClientVersion` stays `dev` and any Supabase creds you'd baked in via secrets are absent. Production users should download the release archive; `go install` is the developer / contributor path.
 
 ## Repo skills (`.claude/skills/`)
 
 Two project-scoped Claude Code skills encode repeatable workflows so they run the
 same way every time instead of being re-derived per session:
 
-- **`zanecli-review`** — reviews a diff/PR/the whole codebase against the project
+- **`zane-review`** — reviews a diff/PR/the whole codebase against the project
   invariants (telemetry sanitization, RAG redaction, fail-closed safety, tool
   conventions). Each rule is tagged `[auto]` (verified by the bundled
   `scripts/review-checks.sh`) or `[judgment]`. Run it before opening or merging
@@ -63,7 +63,7 @@ same way every time instead of being re-derived per session:
   `go vet`, `go mod tidy`, the two invariant greps), branch off `main`, commit
   with the `Co-Authored-By` trailer, push (the `.githooks` pre-push guard runs),
   and open the PR with the house `## What` body format. It composes with
-  `zanecli-review` rather than duplicating its checks.
+  `zane-review` rather than duplicating its checks.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ Request flow: `main.go` REPL loop → `agent.Session.Step` (multi-turn Anthropic
 ```
 main.go              REPL: config wizard, ⌃C handling, history persistence,
                      stdin-backed write confirmer. Builtins: exit/quit, /clear.
-pkg/config           First-run wizard + ~/.zanecli/config.json (mode 0600).
+pkg/config           First-run wizard + ~/.zane/config.json (mode 0600).
 pkg/agent            Session: owns message history, runs the tool-use loop,
                      streams text + [bracketed tool-status] lines, drains the
                      telemetry buffer at end_turn.

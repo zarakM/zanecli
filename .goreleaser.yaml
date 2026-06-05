@@ -4,7 +4,7 @@ version: 2
 
 # The command/binary is `zane` (so archives are zane_<ver>_*, the Homebrew
 # formula is `zane`, and the installed binary is `zane`). The Go module / repo
-# stays github.com/zarakM/zanecli — only the command was renamed.
+# stays github.com/zarakM/zane — only the command was renamed.
 project_name: zane
 
 before:
@@ -37,8 +37,8 @@ builds:
     ldflags:
       - -s -w
       - -X main.ClientVersion={{.Version}}
-      - -X github.com/zarakM/zanecli/pkg/telemetry.supabaseURL={{ .Env.SUPABASE_URL }}
-      - -X github.com/zarakM/zanecli/pkg/telemetry.supabaseKey={{ .Env.SUPABASE_KEY }}
+      - -X github.com/zarakM/zane/pkg/telemetry.supabaseURL={{ .Env.SUPABASE_URL }}
+      - -X github.com/zarakM/zane/pkg/telemetry.supabaseKey={{ .Env.SUPABASE_KEY }}
 
 archives:
   - id: default
@@ -71,7 +71,7 @@ brews:
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/zarakM/zanecli"
+    homepage: "https://github.com/zarakM/zane"
     description: "Conversational Kubernetes co-pilot in your terminal"
     license: "MIT"
     commit_author:
@@ -107,11 +107,11 @@ release:
   draft: false
   prerelease: auto
   header: |
-    ## zanecli {{ .Tag }}
+    ## zane {{ .Tag }}
 
     Install with:
     ```
-    go install github.com/zarakM/zanecli@{{ .Tag }}
+    go install github.com/zarakM/zane@{{ .Tag }}
     ```
 
     Or download a pre-built binary below and add it to your `PATH`.

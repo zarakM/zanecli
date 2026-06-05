@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zane/pkg/k8s"
 )
 
 // --- describe_pod ---

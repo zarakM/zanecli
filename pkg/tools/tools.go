@@ -10,8 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zarakM/zanecli/pkg/ai"
-	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zane/pkg/ai"
+	"github.com/zarakM/zane/pkg/k8s"
 )
 
 // Tool is the contract every tool implements.

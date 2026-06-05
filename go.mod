@@ -1,4 +1,4 @@
-module github.com/zarakM/zanecli
+module github.com/zarakM/zane
 
 go 1.22
 

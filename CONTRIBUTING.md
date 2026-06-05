@@ -1,12 +1,12 @@
-# Contributing to zanecli
+# Contributing to zane
 
-Thanks for taking a look. zanecli is small and opinionated — a couple of read-throughs of `CLAUDE.md` and the package layout in `pkg/` will give you the full picture.
+Thanks for taking a look. zane is small and opinionated — a couple of read-throughs of `CLAUDE.md` and the package layout in `pkg/` will give you the full picture.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/zarakM/zanecli
-cd zanecli
+git clone https://github.com/zarakM/zane
+cd zane
 go build -o zane .
 go test ./... -race
 ```
@@ -33,7 +33,7 @@ The `pre-push` hook blocks a push if the outgoing commits add binaries, files ov
 For substantive changes, please open an issue first so we can align on the approach before you spend time on it.
 
 If you work with Claude Code, two project skills automate the loop above: the
-`open-pr` skill runs these gates and opens the PR for you, and `zanecli-review`
+`open-pr` skill runs these gates and opens the PR for you, and `zane-review`
 reviews a diff against the invariants below (see `.claude/skills/`).
 
 ## Project rules (do not break)

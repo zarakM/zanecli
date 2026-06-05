@@ -1,11 +1,11 @@
 ---
-name: zanecli-review
-description: Review zanecli (the conversational Kubernetes co-pilot CLI) code against its telemetry-sanitization, RAG-redaction, fail-closed safety, and tool conventions. Use when reviewing a diff, PR, or the whole codebase for this repo.
+name: zane-review
+description: Review zane (the conversational Kubernetes co-pilot CLI) code against its telemetry-sanitization, RAG-redaction, fail-closed safety, and tool conventions. Use when reviewing a diff, PR, or the whole codebase for this repo.
 ---
 
-# zanecli code review
+# zane code review
 
-A repeatable reviewer for the `zanecli` repo. It encodes the project's strict,
+A repeatable reviewer for the `zane` repo. It encodes the project's strict,
 security-critical invariants (telemetry sanitization, RAG redaction, fail-closed
 safety) and its code conventions, then checks code against them. Use it to review
 a diff/PR or to sweep the whole codebase.
@@ -18,7 +18,7 @@ your job is the rest.
 
 1. **Run the mechanical checks first**, from the repo root:
    ```bash
-   bash .claude/skills/zanecli-review/scripts/review-checks.sh
+   bash .claude/skills/zane-review/scripts/review-checks.sh
    ```
    It must be run with the repo as the working directory (it greps repo-relative
    paths). Triage any `[FAIL]` before doing anything else — the two security

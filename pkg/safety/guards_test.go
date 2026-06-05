@@ -14,8 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/zarakM/zanecli/pkg/config"
-	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zane/pkg/config"
+	"github.com/zarakM/zane/pkg/k8s"
 )
 
 func newGuardWithCfg(autoExec bool) *Guard {

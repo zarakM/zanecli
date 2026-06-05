@@ -1,6 +1,6 @@
 package main
 
-// zanecli — conversational Kubernetes co-pilot.
+// zane — conversational Kubernetes co-pilot.
 //
 // Phase 5 entry point: REPL with config wizard, agent loop, write tools
 // gated by pkg/safety, and optional persistent conversation history.
@@ -15,13 +15,13 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/zarakM/zanecli/pkg/agent"
-	"github.com/zarakM/zanecli/pkg/config"
-	"github.com/zarakM/zanecli/pkg/history"
-	"github.com/zarakM/zanecli/pkg/k8s"
-	"github.com/zarakM/zanecli/pkg/telemetry"
-	"github.com/zarakM/zanecli/pkg/tools"
-	"github.com/zarakM/zanecli/pkg/ui"
+	"github.com/zarakM/zane/pkg/agent"
+	"github.com/zarakM/zane/pkg/config"
+	"github.com/zarakM/zane/pkg/history"
+	"github.com/zarakM/zane/pkg/k8s"
+	"github.com/zarakM/zane/pkg/telemetry"
+	"github.com/zarakM/zane/pkg/tools"
+	"github.com/zarakM/zane/pkg/ui"
 )
 
 // ClientVersion is injected at build time via -ldflags
@@ -47,7 +47,7 @@ func main() {
 
 	cfg, err := config.LoadOrWizard(os.Stdin, os.Stdout)
 	if err != nil {
-		fatalf("config error: %v\n\nIf the file at ~/.zanecli/config.json is corrupt, delete it and re-run.", err)
+		fatalf("config error: %v\n\nIf the file at ~/.zane/config.json is corrupt, delete it and re-run.", err)
 	}
 
 	// MVP: auto-exec is disabled. Every write falls through to a y/N prompt.

@@ -1,7 +1,7 @@
 package ui
 
 // Tiny ANSI helper. Codes turn into empty strings when stdout is not a TTY,
-// so piping zanecli output to a file produces clean text. No third-party
+// so piping zane output to a file produces clean text. No third-party
 // dependency — we already use direct HTTP everywhere; one less package.
 
 import "os"

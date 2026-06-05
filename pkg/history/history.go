@@ -1,7 +1,7 @@
 package history
 
 // Persistent conversation history. Each chat session writes a JSONL file
-// under ~/.zanecli/history/<UTC-timestamp>.jsonl, one message per line.
+// under ~/.zane/history/<UTC-timestamp>.jsonl, one message per line.
 // JSONL is chosen so a partial write during a crash leaves valid prior
 // lines readable.
 //
@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zarakM/zanecli/pkg/ai"
+	"github.com/zarakM/zane/pkg/ai"
 )
 
 // HistoryDir returns the directory where session JSONLs live.
@@ -27,7 +27,7 @@ func HistoryDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".zanecli", "history"), nil
+	return filepath.Join(home, ".zane", "history"), nil
 }
 
 // Session is one persisted chat session.

@@ -1,18 +1,18 @@
 name: Feature request
-description: Suggest a new tool, a UX improvement, or an investigation pattern zanecli should support.
+description: Suggest a new tool, a UX improvement, or an investigation pattern zane should support.
 title: "[feature] "
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        zanecli is deliberately scoped (chat REPL, Anthropic tool use, read-heavy, two write tools). Before opening a feature request, please skim `CLAUDE.md`'s "Do not" section — some shapes of feature are explicitly out of scope (web server, multi-tenancy, LLM frameworks, etc.) and they'll get closed quickly.
+        zane is deliberately scoped (chat REPL, Anthropic tool use, read-heavy, two write tools). Before opening a feature request, please skim `CLAUDE.md`'s "Do not" section — some shapes of feature are explicitly out of scope (web server, multi-tenancy, LLM frameworks, etc.) and they'll get closed quickly.
 
   - type: textarea
     id: problem
     attributes:
       label: The problem you're trying to solve
-      description: What goes wrong today, or what does zanecli refuse to investigate well? Concrete example > abstract description.
+      description: What goes wrong today, or what does zane refuse to investigate well? Concrete example > abstract description.
     validations:
       required: true
 
@@ -20,7 +20,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: What would zanecli do differently? If you're proposing a new tool, name it and sketch the input schema.
+      description: What would zane do differently? If you're proposing a new tool, name it and sketch the input schema.
     validations:
       required: true
 

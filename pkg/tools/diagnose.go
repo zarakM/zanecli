@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zane/pkg/k8s"
 )
 
 // --- diagnose_pod ---

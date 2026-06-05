@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/zarakM/zanecli/pkg/k8s"
+	"github.com/zarakM/zane/pkg/k8s"
 )
 
 // --- restart_deployment ---
@@ -53,7 +53,7 @@ func (t *RestartDeploymentTool) Run(ctx context.Context, raw json.RawMessage) (s
 	// Patching the pod-template annotations is how `kubectl rollout restart`
 	// works under the hood — it forces a new ReplicaSet without changing image.
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	patch := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"zanecli.dev/restartedAt":"%s"}}}}}`, timestamp)
+	patch := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"zane.dev/restartedAt":"%s"}}}}}`, timestamp)
 
 	_, err = t.Client.Clientset().AppsV1().Deployments(ns).Patch(
 		ctx, dep, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{},
