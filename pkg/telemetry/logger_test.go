@@ -100,11 +100,8 @@ func TestNoCredsShortCircuit(t *testing.T) {
 	// Also blank any ldflags-baked values from prior runs.
 	saveURL, saveKey := supabaseURL, supabaseKey
 	supabaseURL, supabaseKey = "", ""
-	cfgURL, cfgKey := cfgSupabaseURL, cfgSupabaseKey
-	cfgSupabaseURL, cfgSupabaseKey = "", ""
 	t.Cleanup(func() {
 		supabaseURL, supabaseKey = saveURL, saveKey
-		cfgSupabaseURL, cfgSupabaseKey = cfgURL, cfgKey
 	})
 
 	EnsureSession(Session{ID: "x"})

@@ -1,8 +1,9 @@
 package config
 
 // First-run wizard + persisted user config under ~/.zane/config.json.
-// Env vars (ANTHROPIC_API_KEY, KUBECONFIG, SUPABASE_URL/KEY) take precedence
-// over the saved file on Load — same precedence story we used in kubectl-ai.
+// Env vars (ANTHROPIC_API_KEY, KUBECONFIG) take precedence over the saved file
+// on Load. Telemetry's Supabase destination is NOT user config — it is baked
+// into the binary at build time (-ldflags); see pkg/telemetry.
 
 import (
 	"bufio"
@@ -17,15 +18,14 @@ import (
 // Config is everything zane persists between launches.
 // File mode is 0600 — it contains an API key.
 type Config struct {
-	AnthropicAPIKey  string `json:"anthropic_api_key"`
-	KubeconfigPath   string `json:"kubeconfig_path"`
-	TelemetryEnabled bool   `json:"telemetry_enabled"`
-	// Supabase destination for telemetry. Empty = telemetry silently no-ops
-	// even when TelemetryEnabled is true. Env (SUPABASE_URL/KEY) and ldflags
-	// still override these at the telemetry layer; see pkg/telemetry.
-	SupabaseURL    string `json:"supabase_url,omitempty"`
-	SupabaseKey    string `json:"supabase_key,omitempty"`
-	HistoryEnabled bool   `json:"history_enabled"`
+	AnthropicAPIKey string `json:"anthropic_api_key"`
+	KubeconfigPath  string `json:"kubeconfig_path"`
+	// TelemetryEnabled gates anonymous error telemetry. Default true. The
+	// Supabase destination is supplied by the build (-ldflags), never the
+	// user. Turn telemetry off with the DO_NOT_TRACK=1 env var or by setting
+	// "telemetry_enabled": false here.
+	TelemetryEnabled bool `json:"telemetry_enabled"`
+	HistoryEnabled   bool `json:"history_enabled"`
 	// AutoExec opts the session into auto-executing whitelisted writes
 	// (delete_pod, restart_deployment) when the safety guard's other
 	// preconditions pass. Default: false. Override per-invocation with
@@ -78,6 +78,26 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("KUBECONFIG"); v != "" {
 		c.KubeconfigPath = v
 	}
+	// A standard opt-out beats the saved/default value at runtime, so toggling
+	// it takes effect on the next launch without rewriting the config file.
+	if telemetryDisabledByEnv() {
+		c.TelemetryEnabled = false
+	}
+}
+
+// telemetryDisabledByEnv reports whether the environment opts out of telemetry.
+// Honors the cross-tool DO_NOT_TRACK convention (https://consoledonottrack.com)
+// — any value other than empty or "0" — plus an explicit ZANE_TELEMETRY kill
+// switch in {0,false,off,no}.
+func telemetryDisabledByEnv() bool {
+	if v := os.Getenv("DO_NOT_TRACK"); v != "" && v != "0" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ZANE_TELEMETRY"))) {
+	case "0", "false", "off", "no":
+		return true
+	}
+	return false
 }
 
 // Save writes the config to ~/.zane/config.json with 0600 perms.
@@ -156,34 +176,13 @@ func RunWizard(in io.Reader, out io.Writer) (*Config, error) {
 		cfg.KubeconfigPath = expandHome(v)
 	}
 
-	// Telemetry — default ON. Explained briefly.
-	fmt.Fprint(out, "Send anonymous error-type telemetry? (no pod names / env values stored) [Y/n]: ")
-	cfg.TelemetryEnabled = !asksNo(read())
-
-	// Supabase destination — only asked when telemetry is on. Optional:
-	// blank leaves telemetry a silent no-op (env/ldflags can still supply it
-	// later). Env vars are offered as the default so a shell-exported value
-	// doesn't have to be retyped.
-	if cfg.TelemetryEnabled {
-		if env := os.Getenv("SUPABASE_URL"); env != "" {
-			fmt.Fprintf(out, "Supabase URL found in SUPABASE_URL env var. Use it? [Y/n]: ")
-			if !asksNo(read()) {
-				cfg.SupabaseURL = env
-				cfg.SupabaseKey = os.Getenv("SUPABASE_KEY")
-			}
-		}
-		if cfg.SupabaseURL == "" {
-			fmt.Fprint(out, "Supabase project URL for telemetry (blank to skip): ")
-			cfg.SupabaseURL = read()
-		}
-		if cfg.SupabaseURL != "" && cfg.SupabaseKey == "" {
-			fmt.Fprint(out, "Supabase anon/service key: ")
-			cfg.SupabaseKey = read()
-		}
-		if cfg.SupabaseURL == "" || cfg.SupabaseKey == "" {
-			fmt.Fprintln(out, "  (no Supabase credentials — telemetry stays off until SUPABASE_URL/KEY are set)")
-		}
-	}
+	// Telemetry — on by default and not a prompt. The Supabase destination is
+	// baked into the binary at build time, so there is nothing for the user to
+	// configure. We surface a one-line transparency note and an off switch
+	// instead of asking. DO_NOT_TRACK (applied in applyEnvOverrides) still wins.
+	cfg.TelemetryEnabled = true
+	fmt.Fprintln(out, "Anonymous error telemetry is on (no cluster names, env values, or secrets sent).")
+	fmt.Fprintln(out, "  Turn it off any time with DO_NOT_TRACK=1, or \"telemetry_enabled\": false in the config.")
 
 	// History — default OFF. Privacy-first: it stores resource names locally.
 	fmt.Fprint(out, "Persist conversation history locally? It includes resource names from your cluster, never uploaded. [y/N]: ")
@@ -209,10 +208,16 @@ func LoadOrWizard(in io.Reader, out io.Writer) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if exists {
-		return cfg, nil
+	if !exists {
+		cfg, err = RunWizard(in, out)
+		if err != nil {
+			return nil, err
+		}
+		// The wizard defaults telemetry on; honor a DO_NOT_TRACK opt-out on
+		// this first launch too (Load already applies it on later launches).
+		cfg.applyEnvOverrides()
 	}
-	return RunWizard(in, out)
+	return cfg, nil
 }
 
 // --- helpers ---

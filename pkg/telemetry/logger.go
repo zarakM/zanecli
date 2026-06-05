@@ -95,31 +95,13 @@ var (
 	supabaseKey = "" // set via -ldflags at build time
 )
 
-// cfgSupabaseURL/Key are injected from ~/.zane/config.json at startup via
-// SetSupabaseConfig. They sit between env (highest) and ldflags (lowest) so a
-// normal `go build` can ship telemetry without -ldflags, while env vars stay a
-// dev/CI override and ldflags remain the production-bake path.
-var (
-	cfgSupabaseURL = ""
-	cfgSupabaseKey = ""
-)
-
-// SetSupabaseConfig records the config-file-supplied credentials. Empty
-// values are ignored so they never blank out an ldflags-baked default.
-func SetSupabaseConfig(url, key string) {
-	if url != "" && key != "" {
-		cfgSupabaseURL, cfgSupabaseKey = url, key
-	}
-}
-
-// getSupabaseConfig returns the active URL and key. Precedence:
-// env vars > config file > ldflags-baked defaults.
+// getSupabaseConfig returns the active URL and key. The Supabase destination is
+// never user-facing: it comes from the build. Precedence is env vars (a dev/CI
+// override) > ldflags-baked defaults (the production path). When neither is set
+// telemetry silently no-ops.
 func getSupabaseConfig() (url, key string) {
 	if u := os.Getenv("SUPABASE_URL"); u != "" {
 		return u, os.Getenv("SUPABASE_KEY")
-	}
-	if cfgSupabaseURL != "" {
-		return cfgSupabaseURL, cfgSupabaseKey
 	}
 	return supabaseURL, supabaseKey
 }

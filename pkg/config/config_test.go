@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +59,8 @@ func TestLoad_RoundTrip(t *testing.T) {
 	// Clear env so we know the value came from the file, not overrides.
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("KUBECONFIG", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	t.Setenv("ZANE_TELEMETRY", "")
 
 	got, exists, err := Load()
 	if err != nil || !exists {
@@ -118,6 +122,76 @@ func TestLoad_MalformedFileReturnsError(t *testing.T) {
 	}
 	if cfg != nil {
 		t.Errorf("cfg should be nil on parse error, got %+v", cfg)
+	}
+}
+
+// The wizard must never ask the user about telemetry or Supabase: telemetry is
+// on by default and its destination is baked in at build time. It should print a
+// transparency note pointing at the DO_NOT_TRACK off switch instead.
+func TestRunWizard_NoTelemetryPrompts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DO_NOT_TRACK", "")
+	t.Setenv("ZANE_TELEMETRY", "")
+
+	// A kubeconfig the wizard can autodetect and accept.
+	kube := filepath.Join(home, "kubeconfig")
+	if err := os.WriteFile(kube, []byte("apiVersion: v1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+	t.Setenv("KUBECONFIG", kube)
+
+	// Answers: accept the env API key, accept the detected kubeconfig, decline
+	// history. Three prompts, three blank lines — no telemetry prompt at all.
+	var out bytes.Buffer
+	cfg, err := RunWizard(strings.NewReader("\n\n\n"), &out)
+	if err != nil {
+		t.Fatalf("RunWizard: %v", err)
+	}
+
+	if !cfg.TelemetryEnabled {
+		t.Error("telemetry should default on")
+	}
+	// Match the actual old prompt phrasings, not a bare "supabase" substring —
+	// the temp-dir path can contain the test name.
+	lower := strings.ToLower(out.String())
+	for _, banned := range []string{"supabase url", "supabase project", "supabase anon", "send anonymous error-type telemetry"} {
+		if strings.Contains(lower, banned) {
+			t.Errorf("wizard must not prompt for telemetry/Supabase (found %q), got:\n%s", banned, out.String())
+		}
+	}
+	if !strings.Contains(out.String(), "DO_NOT_TRACK") {
+		t.Error("wizard should surface the DO_NOT_TRACK off switch")
+	}
+}
+
+// DO_NOT_TRACK (and the ZANE_TELEMETRY kill switch) force telemetry off at load
+// time, beating a saved telemetry_enabled:true.
+func TestLoad_EnvDisablesTelemetry(t *testing.T) {
+	for _, tc := range []struct{ envKey, envVal string }{
+		{"DO_NOT_TRACK", "1"},
+		{"ZANE_TELEMETRY", "off"},
+	} {
+		t.Run(tc.envKey+"="+tc.envVal, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("DO_NOT_TRACK", "")
+			t.Setenv("ZANE_TELEMETRY", "")
+
+			saved := &Config{AnthropicAPIKey: "k", KubeconfigPath: "/kc", TelemetryEnabled: true}
+			if err := saved.Save(); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(tc.envKey, tc.envVal)
+
+			got, _, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.TelemetryEnabled {
+				t.Errorf("%s=%s should force telemetry off", tc.envKey, tc.envVal)
+			}
+		})
 	}
 }
 
