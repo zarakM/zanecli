@@ -89,7 +89,7 @@ func main() {
 		}
 	}
 
-	fmt.Printf("%szanecli%s — your Kubernetes co-pilot\n", ui.Bold+ui.Cyan, ui.Reset)
+	fmt.Printf("%szane%s — your Kubernetes co-pilot\n", ui.Bold+ui.Cyan, ui.Reset)
 	fmt.Printf("Cluster: %s%s%s\n", ui.Dim, abbreviateServerURL(client.ServerURL()), ui.Reset)
 	fmt.Printf("%s[every cluster change asks first — confirm with y/N]%s\n", ui.Dim, ui.Reset)
 

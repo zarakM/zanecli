@@ -11,8 +11,8 @@ All six original implementation phases (rename, wizard, agent loop, write action
 ## Build, run, check
 
 ```bash
-go build -o zanecli .              # build
-./zanecli                          # run (first launch triggers the config wizard)
+go build -o zane .                 # build
+./zane                             # run (first launch triggers the config wizard)
 go vet ./...                       # vet
 go test ./... -race -count=1       # unit tests (full suite ~3s)
 go mod tidy                        # after touching imports
@@ -33,7 +33,7 @@ GOOS=linux GOARCH=amd64 go build -ldflags "\
   -X main.ClientVersion=v0.1.0 \
   -X github.com/zarakM/zanecli/pkg/telemetry.supabaseURL=https://yourproject.supabase.co \
   -X github.com/zarakM/zanecli/pkg/telemetry.supabaseKey=your-anon-key" \
-  -o zanecli-linux .
+  -o zane-linux .
 ```
 Credential precedence (highest → lowest): `SUPABASE_URL`/`SUPABASE_KEY` env vars > `~/.zanecli/config.json` (passed in via `telemetry.SetSupabaseConfig`) > ldflags-baked defaults. Same env-wins precedence for `ANTHROPIC_API_KEY` / `KUBECONFIG` over the config file.
 
@@ -45,7 +45,7 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 `.github/workflows/release.yml` triggers on any `v*` tag and invokes GoReleaser per `.goreleaser.yaml`. GoReleaser cross-compiles for Linux/macOS/Windows (amd64 + arm64; Windows-arm64 skipped), bundles each binary with `LICENSE` and `README.md`, generates `checksums.txt`, and attaches everything to a GitHub Release. Pre-release tags (`v0.1.0-rc.1`) are marked as pre-release automatically.
 
-The `brews:` block also generates `Formula/zanecli.rb` and pushes it to the `github.com/zarakM/homebrew-tap` repo (install: `brew install zarakM/tap/zanecli`). This depends on two pieces of GitHub-side setup that are NOT in the repo: the `homebrew-tap` repo must exist, and a `HOMEBREW_TAP_GITHUB_TOKEN` secret (PAT with write access to the tap) must be set — the default `GITHUB_TOKEN` can't push to another repo. `skip_upload: auto` means pre-release tags do not update the tap; only final tags publish a formula.
+The `brews:` block also generates `Formula/zane.rb` and pushes it to the `github.com/zarakM/homebrew-tap` repo (install: `brew install zarakM/tap/zane`). The binary/command is `zane`; the Go module/repo stays `github.com/zarakM/zanecli`. This depends on two pieces of GitHub-side setup that are NOT in the repo: the `homebrew-tap` repo must exist, and a `HOMEBREW_TAP_GITHUB_TOKEN` secret (PAT with write access to the tap) must be set — the default `GITHUB_TOKEN` can't push to another repo. `skip_upload: auto` means pre-release tags do not update the tap; only final tags publish a formula.
 
 ldflag injection at release time is GoReleaser's responsibility — `.goreleaser.yaml` reads `{{.Version}}` for `main.ClientVersion`, plus `SUPABASE_URL` / `SUPABASE_KEY` from repo secrets (silently empty if unset). **`go install github.com/zarakM/zanecli@v0.1.0` does NOT apply these ldflags** — it builds from source, so `ClientVersion` stays `dev` and any Supabase creds you'd baked in via secrets are absent. Production users should download the release archive; `go install` is the developer / contributor path.
 

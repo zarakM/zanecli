@@ -2,7 +2,7 @@
 
 > Talk to your cluster. Investigate, explain, fix.
 
-`zanecli` is a terminal chat for Kubernetes. Run `zanecli`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, but every cluster mutation asks for a `y/N` confirmation first.
+`zanecli` is a terminal chat for Kubernetes, installed as the `zane` command. Run `zane`, ask a question in plain English, and the agent uses Anthropic tool use to inspect your cluster (pods, deployments, events, logs) and answer with cited evidence. For a tightly-scoped set of writes — restarting a stuck deployment, deleting a CrashLoopBackOff pod — it can also act, but every cluster mutation asks for a `y/N` confirmation first.
 
 ## Why this exists
 
@@ -18,11 +18,11 @@ zanecli is a chat session that:
 ### Homebrew (macOS / Linux, recommended)
 
 ```bash
-brew install zarakM/tap/zanecli
-zanecli  # first launch triggers the wizard
+brew install zarakM/tap/zane
+zane  # first launch triggers the wizard
 ```
 
-This taps `github.com/zarakM/homebrew-tap` and installs the release binary, so the version is baked in (`main.ClientVersion` matches the tag). Upgrade with `brew upgrade zanecli`. The formula is regenerated automatically on every `v*` release by GoReleaser.
+This taps `github.com/zarakM/homebrew-tap` and installs the release binary, so the version is baked in (`main.ClientVersion` matches the tag). Upgrade with `brew upgrade zane`. The formula is regenerated automatically on every `v*` release by GoReleaser.
 
 ### Krew (kubectl plugin)
 
@@ -41,15 +41,15 @@ kubectl krew install --manifest=zane.yaml
 
 ### Pre-built binary
 
-Download the archive for your OS/arch from the [latest release](https://github.com/zarakM/zanecli/releases/latest), extract it, and move `zanecli` onto your `PATH`:
+Download the archive for your OS/arch from the [latest release](https://github.com/zarakM/zanecli/releases/latest), extract it, and move `zane` onto your `PATH`:
 
 ```bash
 # macOS arm64 (Apple Silicon). Adjust the version and asset name for your platform.
-curl -L -o zanecli.tar.gz \
-  https://github.com/zarakM/zanecli/releases/download/v0.1.1/zanecli_0.1.1_Darwin_arm64.tar.gz
-tar -xzf zanecli.tar.gz
-sudo mv zanecli /usr/local/bin/zanecli
-zanecli  # first launch triggers the wizard
+curl -L -o zane.tar.gz \
+  https://github.com/zarakM/zanecli/releases/download/v0.1.2/zane_0.1.2_Darwin_arm64.tar.gz
+tar -xzf zane.tar.gz
+sudo mv zane /usr/local/bin/zane
+zane  # first launch triggers the wizard
 ```
 
 Archives are available for `Darwin_arm64`, `Darwin_x86_64`, `Linux_arm64`, `Linux_x86_64`, and `Windows_x86_64` (zip). `checksums.txt` is published alongside; verify with `shasum -a 256 -c checksums.txt`.
@@ -62,27 +62,27 @@ Pre-built binaries embed the release tag in `main.ClientVersion` (visible in tel
 go install github.com/zarakM/zanecli@latest
 ```
 
-The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`. Note that `go install` builds from source, so the release-tag ldflag is **not** applied — `ClientVersion` will be `dev`.
+The binary lands in `$(go env GOBIN)` (or `$(go env GOPATH)/bin` if `GOBIN` is unset). Make sure that directory is on your `PATH`. Note that `go install` builds from source, so the release-tag ldflag is **not** applied — `ClientVersion` will be `dev`. It also names the binary `zanecli` after the module path (rename it to `zane` if you want the same command as the release builds); brew/krew/release archives all install it as `zane`.
 
 ### Build from source
 
 ```bash
 git clone https://github.com/zarakM/zanecli
 cd zanecli
-go build -o zanecli .
-cp zanecli /usr/local/bin/zanecli
+go build -o zane .
+cp zane /usr/local/bin/zane
 ```
 
 Cross-compile:
 
 ```bash
-GOOS=linux GOARCH=amd64 go build -o zanecli-linux .
+GOOS=linux GOARCH=amd64 go build -o zane-linux .
 ```
 
 ## First run
 
 ```bash
-zanecli
+zane
 ```
 
 A wizard prompts you for:
@@ -96,8 +96,8 @@ Saved to `~/.zanecli/config.json` (mode 0600). `ANTHROPIC_API_KEY`, `KUBECONFIG`
 ## Usage
 
 ```
-$ zanecli
-zanecli — your Kubernetes co-pilot
+$ zane
+zane — your Kubernetes co-pilot
 Cluster: prod-east.cluster.local:6443
 Type your question, or 'exit' to quit. Use /clear to reset the conversation.
 
@@ -153,7 +153,7 @@ Built-ins (the only ones — there are no CLI flags or other slash commands):
 
 ## Safety: writes always confirm
 
-In this build, **every cluster write prompts for `y/N` confirmation** — auto-exec is disabled. There are no `--auto`/`--no-auto` flags and no `/auto` slash command. Before any write, zanecli shows a `[tool — reason]` status line and a `Want me to ...? [y/N]` prompt; only an explicit `y`/`yes` proceeds.
+In this build, **every cluster write prompts for `y/N` confirmation** — auto-exec is disabled. There are no `--auto`/`--no-auto` flags and no `/auto` slash command. Before any write, zane shows a `[tool — reason]` status line and a `Want me to ...? [y/N]` prompt; only an explicit `y`/`yes` proceeds.
 
 A staged three-guard auto-exec design exists in `pkg/safety` (session opt-in → whitelist of `restart_deployment`/`delete_pod` → live state precondition → per-session quota) but is intentionally dormant: the session opt-in is forced off at startup, so `Evaluate` always returns the confirmation path. Enabling it is future work, not a current feature.
 
@@ -191,7 +191,7 @@ Schema migrations live under `supabase/migrations/`. Apply with the Supabase SQL
 
 ## History (optional)
 
-If you opt in during the wizard, each session is appended to `~/.zanecli/history/<UTC-timestamp>.jsonl` (one message per line, mode 0600). On launch, zanecli offers to resume the most recent session.
+If you opt in during the wizard, each session is appended to `~/.zanecli/history/<UTC-timestamp>.jsonl` (one message per line, mode 0600). On launch, zane offers to resume the most recent session.
 
 History stays on your machine. It contains resource names from your cluster — never uploaded.
 
@@ -219,7 +219,7 @@ That's by design — `AutoExec` is hard-off in `main.go` for the v1 build. See [
 ## Development
 
 ```bash
-go build -o zanecli .
+go build -o zane .
 go vet ./...
 go test ./... -race -count=1
 ```

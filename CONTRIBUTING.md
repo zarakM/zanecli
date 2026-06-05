@@ -7,7 +7,7 @@ Thanks for taking a look. zanecli is small and opinionated — a couple of read-
 ```bash
 git clone https://github.com/zarakM/zanecli
 cd zanecli
-go build -o zanecli .
+go build -o zane .
 go test ./... -race
 ```
 
@@ -21,7 +21,7 @@ After cloning, point git at the tracked hooks directory so the pre-push guard ru
 bash .githooks/install.sh        # sets core.hooksPath -> .githooks
 ```
 
-The `pre-push` hook blocks a push if the outgoing commits add binaries, files over 1 MiB, secret/credential files (`.env`, `*.pem`, `kubeconfig`, …), hardcoded secret values, or zanecli build artifacts. Bypass once, at your own risk, with `git push --no-verify`.
+The `pre-push` hook blocks a push if the outgoing commits add binaries, files over 1 MiB, secret/credential files (`.env`, `*.pem`, `kubeconfig`, …), hardcoded secret values, or build artifacts (the compiled `zane` binary, etc.). Bypass once, at your own risk, with `git push --no-verify`.
 
 ## Before you open a PR
 
@@ -91,9 +91,9 @@ Pre-release tags (`v0.1.0-rc.1`, etc.) are marked as pre-release automatically a
 
 ### Homebrew tap prerequisites (one-time)
 
-The `brews:` block in `.goreleaser.yaml` pushes a generated `Formula/zanecli.rb` to a separate repo so users can `brew install zarakM/tap/zanecli`. Two pieces of setup must exist before the first release that publishes a formula:
+The `brews:` block in `.goreleaser.yaml` pushes a generated `Formula/zane.rb` to a separate repo so users can `brew install zarakM/tap/zane`. Two pieces of setup must exist before the first release that publishes a formula:
 
-1. **Tap repo** `github.com/zarakM/homebrew-tap` (public; the `homebrew-` prefix is what makes the short `zarakM/tap/zanecli` name resolve).
+1. **Tap repo** `github.com/zarakM/homebrew-tap` (public; the `homebrew-` prefix is what makes the short `zarakM/tap/zane` name resolve).
 2. **`HOMEBREW_TAP_GITHUB_TOKEN` secret** in this repo's Actions secrets — a PAT with write access to the tap (classic: `repo` scope; fine-grained: Contents read/write on `homebrew-tap`). The default `GITHUB_TOKEN` can't push to another repo, so this is required.
 
 If the secret is missing the release still builds binaries, but the brew step fails. Remove the `brews:` block if you want to drop the tap entirely.

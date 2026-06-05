@@ -2,14 +2,19 @@
 # Docs: https://goreleaser.com
 version: 2
 
+# The command/binary is `zane` (so archives are zane_<ver>_*, the Homebrew
+# formula is `zane`, and the installed binary is `zane`). The Go module / repo
+# stays github.com/zarakM/zanecli — only the command was renamed.
+project_name: zane
+
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: zanecli
+  - id: zane
     main: .
-    binary: zanecli
+    binary: zane
     env:
       - CGO_ENABLED=0
     goos:
@@ -50,16 +55,16 @@ archives:
       - LICENSE
       - README.md
 
-# Homebrew tap. GoReleaser renders a Formula/zanecli.rb from the archives above
+# Homebrew tap. GoReleaser renders a Formula/zane.rb from the archives above
 # and pushes it to github.com/zarakM/homebrew-tap, so users can:
-#   brew install zarakM/tap/zanecli
+#   brew install zarakM/tap/zane
 # The push targets a DIFFERENT repo than this one, so the default GITHUB_TOKEN
 # is not enough — a PAT with `repo` scope on the tap is supplied via the
 # HOMEBREW_TAP_GITHUB_TOKEN secret (wired in .github/workflows/release.yml).
-# No `test` stanza: zanecli has no flags and a bare launch opens the stdin
+# No `test` stanza: zane has no flags and a bare launch opens the stdin
 # wizard, which would hang `brew test`.
 brews:
-  - name: zanecli
+  - name: zane
     repository:
       owner: zarakM
       name: homebrew-tap
@@ -75,11 +80,11 @@ brews:
     # Don't publish a formula for pre-release tags (v0.1.0-rc.1, etc.).
     skip_upload: auto
     install: |
-      bin.install "zanecli"
+      bin.install "zane"
     caveats: |
-      zanecli needs an Anthropic API key (ANTHROPIC_API_KEY env var or the
+      zane needs an Anthropic API key (ANTHROPIC_API_KEY env var or the
       first-run wizard) and a kubeconfig (KUBECONFIG or ~/.kube/config).
-      Start the co-pilot by running: zanecli
+      Start the co-pilot by running: zane
 
 checksum:
   name_template: "checksums.txt"

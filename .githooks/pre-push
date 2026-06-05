@@ -57,6 +57,7 @@ is_zanecli_artifact() {
   # meant to be tracked), so it is deliberately NOT matched here. The runtime
   # local config lives at ~/.zanecli/config.json, outside the repo.
   case "$1" in
+    zane|*/zane|zane-linux|zane-darwin*|zane-windows*)                    return 0 ;;
     zanecli|*/zanecli|zanecli-linux|zanecli-darwin*|zanecli-windows*)     return 0 ;;
     *.exe)                                                               return 0 ;;
     *.jsonl|*/.zanecli/*)                                                return 0 ;;

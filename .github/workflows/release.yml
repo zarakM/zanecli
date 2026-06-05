@@ -38,7 +38,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # PAT with `repo` scope on github.com/zarakM/homebrew-tap so
-          # GoReleaser can push the generated Formula/zanecli.rb there. If the
+          # GoReleaser can push the generated Formula/zane.rb there. If the
           # secret is unset the brew step errors — set it before relying on
           # `brew install`, or remove the `brews:` block from .goreleaser.yaml.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

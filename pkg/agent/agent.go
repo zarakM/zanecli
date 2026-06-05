@@ -523,7 +523,7 @@ func hasAnyText(blocks []ai.ContentBlock) bool {
 
 // systemPrompt is the agent's persona and operating instructions.
 func systemPrompt() string {
-	return `You are zanecli, a Kubernetes operations co-pilot embedded in a terminal chat session.
+	return `You are zane, a Kubernetes operations co-pilot embedded in a terminal chat session.
 
 Your job is to help the user investigate and fix Kubernetes issues. Your tools are:
 - READ: list_pods, list_deployments, list_namespaces, list_pvcs, list_storageclasses, describe_pod, describe_deployment, get_pod_logs, get_events, diagnose_pod, diagnose_rollout, get_resource.
