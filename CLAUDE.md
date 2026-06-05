@@ -35,7 +35,7 @@ GOOS=linux GOARCH=amd64 go build -ldflags "\
   -X github.com/zarakM/zane/pkg/telemetry.supabaseKey=your-anon-key" \
   -o zane-linux .
 ```
-Credential precedence (highest → lowest): `SUPABASE_URL`/`SUPABASE_KEY` env vars > `~/.zane/config.json` (passed in via `telemetry.SetSupabaseConfig`) > ldflags-baked defaults. Same env-wins precedence for `ANTHROPIC_API_KEY` / `KUBECONFIG` over the config file.
+Telemetry's Supabase destination is **never user-facing** — it is not in the config file and the wizard does not ask. Precedence (highest → lowest): `SUPABASE_URL`/`SUPABASE_KEY` env vars (a dev/CI override) > ldflags-baked defaults (the production path). `ANTHROPIC_API_KEY` / `KUBECONFIG` env vars still win over the config file. Telemetry is **on by default**; `DO_NOT_TRACK=1` (or `ZANE_TELEMETRY` in {0,false,off,no}, or `"telemetry_enabled": false` in the config) turns it off — applied in `config.applyEnvOverrides`.
 
 ### Releases
 

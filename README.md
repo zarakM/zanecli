@@ -88,10 +88,11 @@ zane
 A wizard prompts you for:
 - **Anthropic API key** (`ANTHROPIC_API_KEY` env var is auto-detected and offered as the default)
 - **Kubeconfig path** (`~/.kube/config` is auto-detected and offered as the default)
-- **Telemetry** (default on; anonymous error-type aggregates only — see [Telemetry](#telemetry)). If enabled, you're also asked for a Supabase URL/key (blank leaves telemetry a silent no-op)
 - **History** (off by default; opt in to persist conversations locally)
 
-Saved to `~/.zane/config.json` (mode 0600). `ANTHROPIC_API_KEY`, `KUBECONFIG`, and `SUPABASE_URL`/`SUPABASE_KEY` env vars override the file on every launch.
+Anonymous error-type telemetry is **on by default** and the wizard does not ask about it — its destination is built into the binary, never something you configure (see [Telemetry](#telemetry)). Turn it off any time with `DO_NOT_TRACK=1` or by setting `"telemetry_enabled": false` in the config.
+
+Saved to `~/.zane/config.json` (mode 0600). `ANTHROPIC_API_KEY` and `KUBECONFIG` env vars override the file on every launch.
 
 ## Usage
 
@@ -159,7 +160,7 @@ A staged three-guard auto-exec design exists in `pkg/safety` (session opt-in →
 
 ## Telemetry
 
-Configured in the wizard (default on; set to off there, or leave the Supabase URL/key blank, to disable). No per-run flag. When on, three Supabase tables are written:
+On by default — the Supabase destination is baked into release builds at compile time and is never user-facing. To disable, set `DO_NOT_TRACK=1` (the [cross-tool convention](https://consoledonottrack.com)) or `"telemetry_enabled": false` in `~/.zane/config.json`. A `go build` with no baked credentials is a silent no-op; developers/CI can point telemetry elsewhere with the `SUPABASE_URL`/`SUPABASE_KEY` env vars. When on, three Supabase tables are written:
 
 **`incidents`** — one row per diagnostic / write. Anonymous error-type aggregates only:
 - `incident_type` (`crash` / `pending` / `rollout` / `auto_exec` / `confirmed_write` / `refused_write`)
