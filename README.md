@@ -1,3 +1,5 @@
+![zane diagnoses a CrashLoopBackOff in seconds](demo.gif)
+
 # zane — Conversational Kubernetes Co-Pilot
 
 > Talk to your cluster. Investigate, explain, fix.
